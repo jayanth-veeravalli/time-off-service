@@ -1,98 +1,89 @@
 ---
 name: alternatives
-description: Use this skill whenever producing an alternatives analysis document or capturing the approaches considered for an architectural decision. Triggers include any mention of "alternatives", "alternatives considered", "design alternatives", "approaches considered", "ADR", or requests to document the design options that were weighed before a decision was made. Use as a companion to a TRD — the TRD captures the chosen design; this document captures what else was on the table and why it didn't win.
+description: Use this skill whenever producing an Architecture Decision Record (ADR) or alternatives analysis document. Triggers include any mention of "ADR", "alternatives", "alternatives considered", "design alternatives", "approaches considered", or requests to document the design options that were weighed before a decision was made. Use as a companion to a TRD — the TRD captures the chosen design; this document captures the problems that shaped it, what else was on the table, and why it didn't win.
 ---
 
-# Alternatives Considered Format
+# Architecture Decision Record (ADR) Format
 
-This document captures the full design analysis that led to the decisions recorded in the TRD. It exists because real design work involves multiple options, pressure-testing, and tradeoffs — and that reasoning is too valuable to lose, but too detailed to live inside the TRD itself.
+This document captures the problem space, the approaches considered, and the rationale behind the chosen solution. It exists because real design work involves pressure-testing options and weighing tradeoffs — reasoning that is too valuable to lose but too detailed for the TRD itself.
 
-The TRD links to this document. Each major decision in `TRD.md` Section 6 (Decision Summary) points to a corresponding section here.
+The TRD links to this document. The TRD's Proposed Solution section references ADR.md for the decision rationale behind major choices.
 
 ## Output location
 
-Write to `docs/ALTERNATIVES.md` unless the user specifies otherwise.
+Write to `docs/ADR.md` unless the user specifies otherwise.
 
 ## Core principles
 
+- **Problems before solutions.** The first job of this document is to establish *why* the design was hard. State the properties of the problem that constrained the solution space before presenting any approach.
+- **Assumptions are explicit.** Any assumption that changes the tradeoffs (availability SLA, rate limiting, scale target) must be named. If an assumption is violated in production, the decision needs revisiting.
 - **Be honest about what you considered.** If an approach was dismissed without analysis, say so — don't pretend you weighed it.
 - **Cons are not weakness signals; missing cons are.** Every approach has tradeoffs. An approach with only pros means you didn't think hard enough.
-- **Pressure-test outcomes matter.** Note where an approach failed under questioning, even if you ultimately chose it.
-- **Link back to challenges.** Approaches are evaluated against the challenges in `TRD.md` Section 3. Reference them by ID (C-1, C-2, ...).
+- **Remaining weaknesses are mandatory.** The chosen approach has downsides. Name them. Silence here causes surprises later.
 
 ## Document structure
 
 ### Header
 
-Start with:
-> Companion to [`docs/TRD.md`](./TRD.md). Each decision below corresponds to an entry in TRD Section 6.
+```markdown
+# ADR: <Service or Feature Name> — Architecture Decisions
 
-### One subsection per major decision
+> <One-sentence summary of what this ADR covers and why it exists.>
+>
+> Related: [TRD](./TRD.md) · [Test Plan](./TEST-PLAN.md)
+```
 
-For each architectural decision that had real alternatives (data model, consistency model, sync strategy, conflict resolution, async architecture, external integration pattern, etc.), produce a section with the structure below. Use H2 headings (`##`) for each decision so they're easy to link to.
-
-#### Structure for each decision
-
-**## Decision N: [Short name of the decision]**
-
-**Context.** 2-3 sentences on what problem this decision addresses and which challenges (C-N from the TRD) it relates to.
-
-**Approaches considered.** For each approach (typically 2-3, sometimes more):
-
-- **Name.** A short, memorable name (e.g., "Synchronous write-through", "Outbox + reconciliation worker", "Event sourcing with snapshots").
-- **Description.** One paragraph on how the approach works.
-- **Pros.** What this approach is genuinely good at.
-- **Cons.** What it costs, what it gives up, what gets harder.
-- **Pressure-test notes.** Observations from stress-testing the approach: what failure modes it handles well, where it breaks down, unanswered questions that surfaced.
-
-**Comparison.** A short matrix (markdown table) comparing approaches against the relevant challenges and requirements. Rows are challenges/requirements; columns are approaches; cells show how each approach scores.
-
-**Decision.** The approach chosen, with the reasoning. Tie it explicitly back to which challenges drove the choice. Name the weaknesses the chosen approach still has — every approach has them, and acknowledging them prevents surprises later.
-
-### Example structure
+### Status
 
 ```markdown
-## Decision N: <Short name of the decision>
+## Status
 
-**Context.** 2-3 sentences on what problem this decision addresses and which challenges (C-N from the TRD) it relates to.
-
-**Approaches considered.**
-
-### Approach A: <Name>
-**Description.** One paragraph on how this approach works.
-
-**Pros.**
-- <Strength>
-- <Strength>
-
-**Cons.**
-- <Tradeoff or cost>
-- <Tradeoff or cost>
-
-**Pressure-test notes.** Observations from stress-testing: which failure modes it handles well, where it breaks down, unanswered questions that surfaced.
-
-### Approach B: <Name>
-**Description.** ...
-
-(Repeat for each approach considered.)
-
-**Comparison.**
-
-| Concern         | Approach A | Approach B | Approach C |
-|-----------------|------------|------------|------------|
-| <Challenge C-1> | <score>    | <score>    | <score>    |
-| <Challenge C-2> | <score>    | <score>    | <score>    |
-| <Other concern> | <score>    | <score>    | <score>    |
-
-**Decision.** The approach chosen, with reasoning tied explicitly to the challenges and requirements that drove the choice.
-
-**Remaining weaknesses.** Honest acknowledgment of what the chosen approach still gives up or doesn't handle well. Every approach has some — naming them prevents surprises later.
+PENDING REVIEW | ACCEPTED | SUPERSEDED BY <link>
 ```
+
+### Overview
+
+2-3 sentences on what the TRD is building and why the design choices in this ADR matter. Link to [Overview](./TRD.md#1-overview) and [Goals](./TRD.md#2-goals) in the TRD rather than restating them.
+
+### Problems That Shape the Solution
+
+Enumerate the properties of the problem that constrained the solution space. For each:
+- **Named property.** One sentence stating the constraint or tension.
+- A clarifying sentence on *why* this property makes a naive solution fail.
+
+End with a "What matters most to the caller" statement — the value that must be preserved above all else in the design.
+
+#### Assumptions subsection
+
+List the assumptions the design depends on. Number them. For each assumption that, if violated, would change the chosen approach, note what the fallback would be.
+
+### Approaches Considered
+
+One H3 subsection per approach. Use named approaches, not "Option A/B". Each approach section contains:
+
+- **Description.** One paragraph on how it works end-to-end.
+- **Pros.** What it is genuinely good at.
+- **Cons.** What it costs or gives up.
+
+Separate approaches with `---`.
+
+### Comparison
+
+A markdown table comparing approaches against the concerns that differentiate them. Rows are concerns (accuracy, failure modes, complexity, UX, etc.); columns are approaches. Column headers should link to the approach's section anchor. Every cell should be a short phrase, not a sentence.
+
+### Decision
+
+- State the chosen approach with a link to its section.
+- Link to the [Proposed Solution](./TRD.md#5-proposed-solution) in the TRD for how the decision is reflected in the implementation.
+- 2-3 sentences of rationale: why this approach over the others, tied explicitly to the problems stated above.
+- A **"Why this approach?"** bullet list for any reasoning that didn't fit cleanly in the prose.
+- **Remaining weaknesses.** Bullet list of acknowledged downsides. Every chosen approach has some.
 
 ## Common failure modes to avoid
 
 - **Straw-man alternatives.** Don't list options you never seriously considered just to make the chosen one look better.
-- **Asymmetric analysis.** All approaches deserve the same depth of pros, cons, and pressure-testing. Lopsided analysis signals bias.
-- **Missing comparison.** The matrix is what makes a decision defensible. Without it, "we chose B because it felt right" is what you've written.
+- **Asymmetric analysis.** All approaches deserve the same depth of pros and cons. Lopsided analysis signals bias.
+- **Missing comparison table.** The table is what makes the decision defensible at a glance. Without it, "we chose B because it felt right" is what you've written.
 - **Decisions without weaknesses.** If the chosen approach has no acknowledged downsides, you haven't stress-tested it enough.
-- **Cosmetic alternatives.** Don't include options that differ only in surface details. Each approach should make meaningfully different tradeoffs.
+- **Assumptions buried in prose.** If an assumption changes the tradeoffs, it must appear in the Assumptions section — not hidden in an approach description.
+- **Cosmetic alternatives.** Each approach must make meaningfully different tradeoffs. Approaches that differ only in surface details are one approach.

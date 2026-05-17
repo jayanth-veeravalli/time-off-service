@@ -11,7 +11,7 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
+} from '../setup';
 
 describe('RG-13: GET /requests — filter by managerId / employeeId / status', () => {
   let app: INestApplication;

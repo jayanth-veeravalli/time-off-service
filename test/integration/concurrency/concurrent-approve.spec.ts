@@ -11,9 +11,9 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { typedQuery } from '../helpers/db-query';
-import { makeSubmitBody } from '../helpers/factories';
+} from '../setup';
+import { typedQuery } from '../../helpers/db-query';
+import { makeSubmitBody } from '../../helpers/factories';
 
 describe('RG-1: concurrent submits cannot overdraw balance', () => {
   let app: INestApplication;
@@ -89,6 +89,114 @@ describe('RG-1: concurrent submits cannot overdraw balance', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('PENDING');
+  });
+});
+
+describe('RG-7b: concurrent approvals of the same request — idempotency guard inside lock', () => {
+  let app: INestApplication;
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    await startMockServer();
+    ({ app, dataSource } = await buildTestModule());
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await stopMockServer();
+  });
+
+  beforeEach(async () => {
+    await resetDb(dataSource);
+    await hcmMock.reset();
+    deterministicUuid.reset();
+  });
+
+  it('two concurrent approvals of the same request — both return 200, debit called exactly once', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const submitRes = await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send(makeSubmitBody({ ...DEFAULT_KEY }))
+      .expect(201);
+    const externalId = (submitRes.body as { externalId: string }).externalId;
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalId}/approve`)
+        .send({ actorId: 'mgr-1' }),
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalId}/approve`)
+        .send({ actorId: 'mgr-1' }),
+    ]);
+
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    expect((resA.body as { status: string }).status).toBe('APPROVED');
+    expect((resB.body as { status: string }).status).toBe('APPROVED');
+
+    const debits = await hcmMock.getDebits();
+    expect(debits[externalId]).toBe(40);
+    expect(Object.keys(debits)).toHaveLength(1);
+  });
+});
+
+describe('RG-7c: concurrent withdrawals of the same APPROVED request — idempotency guard inside lock', () => {
+  let app: INestApplication;
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    await startMockServer();
+    ({ app, dataSource } = await buildTestModule());
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await stopMockServer();
+  });
+
+  beforeEach(async () => {
+    await resetDb(dataSource);
+    await hcmMock.reset();
+    deterministicUuid.reset();
+  });
+
+  it('two concurrent withdrawals of the same APPROVED request — both return 200, reversal called exactly once', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const submitRes = await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send(makeSubmitBody({ ...DEFAULT_KEY }))
+      .expect(201);
+    const externalId = (submitRes.body as { externalId: string }).externalId;
+
+    await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/approve`)
+      .send({ actorId: 'mgr-1' })
+      .expect(200);
+
+    const debitsBefore = await hcmMock.getDebits();
+    expect(debitsBefore[externalId]).toBe(40);
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalId}/withdraw`)
+        .send({ actorId: 'emp-1' }),
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalId}/withdraw`)
+        .send({ actorId: 'emp-1' }),
+    ]);
+
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    expect((resA.body as { status: string }).status).toBe('WITHDRAWN');
+    expect((resB.body as { status: string }).status).toBe('WITHDRAWN');
+
+    // reversal removes the debit entry — must be absent (not double-reversed)
+    const debitsAfter = await hcmMock.getDebits();
+    expect(debitsAfter[externalId]).toBeUndefined();
   });
 });
 

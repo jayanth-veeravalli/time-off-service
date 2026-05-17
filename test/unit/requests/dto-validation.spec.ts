@@ -71,6 +71,93 @@ describe('SubmitRequestDto validation', () => {
     expect(errs).toHaveLength(0);
   });
 
+  it('accepts ISO 8601 datetime strings on the hour', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T09:00:00.000Z',
+      endDate: '2024-03-01T13:00:00.000Z',
+    });
+    expect(errs).toHaveLength(0);
+  });
+
+  it('accepts ISO 8601 datetime strings on the 15-minute mark', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T09:15:00.000Z',
+      endDate: '2024-03-01T13:45:00.000Z',
+    });
+    expect(errs).toHaveLength(0);
+  });
+
+  it('accepts ISO 8601 datetime strings on the 30-minute mark', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T09:30:00.000Z',
+      endDate: '2024-03-01T13:30:00.000Z',
+    });
+    expect(errs).toHaveLength(0);
+  });
+
+  it('rejects startDate with minutes not on a 15-minute boundary', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T09:10:00.000Z',
+    });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('rejects endDate with minutes not on a 15-minute boundary', async () => {
+    const errs = await errors({
+      ...valid(),
+      endDate: '2024-03-05T17:20:00.000Z',
+    });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('rejects startDate with non-zero seconds', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T09:00:30.000Z',
+    });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('rejects endDate with non-zero seconds', async () => {
+    const errs = await errors({
+      ...valid(),
+      endDate: '2024-03-05T09:30:45.000Z',
+    });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('accepts date-only strings (full-day request, no time to validate)', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01',
+      endDate: '2024-03-05',
+    });
+    expect(errs).toHaveLength(0);
+  });
+
+  it('rejects non-ISO startDate', async () => {
+    const errs = await errors({ ...valid(), startDate: '01/03/2024' });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('rejects non-ISO endDate', async () => {
+    const errs = await errors({ ...valid(), endDate: 'March 5 2024' });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it('rejects endDate datetime before startDate datetime', async () => {
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-01T13:00:00.000Z',
+      endDate: '2024-03-01T09:00:00.000Z',
+    });
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
   it('rejects a non-integer year', async () => {
     const errs = await errors({ ...valid(), year: 2024.5 });
     expect(errs.length).toBeGreaterThan(0);

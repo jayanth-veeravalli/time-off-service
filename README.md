@@ -2,7 +2,9 @@
 
 A NestJS microservice for managing employee time-off requests. Employees submit requests, managers approve or reject them, and the service keeps leave balances in sync with an external HCM system (Workday or SAP). A scheduler automatically cancels requests whose start date has passed without a decision.
 
-**Design docs:** [TRD](docs/TRD.md) · [Alternatives Considered](docs/ALTERNATIVES.md) · [Test Plan](docs/TEST-PLAN.md)
+![Tests](https://img.shields.io/badge/tests-190%20passing-brightgreen) ![Statements](https://img.shields.io/badge/statements-95%25-brightgreen) ![Branches](https://img.shields.io/badge/branches-78%25-yellowgreen) ![Functions](https://img.shields.io/badge/functions-93%25-brightgreen)
+
+**Design docs:** [TRD](docs/TRD.md) · [Architecture Decision Record](docs/ADR.md) · [Test Plan](docs/TEST-PLAN.md)
 
 ---
 
@@ -85,6 +87,23 @@ pnpm test:cov
 ```
 
 Integration and e2e tests spin up a real in-memory SQLite database and an HTTP mock server that simulates the HCM system. No mocking of `dataSource` or HTTP clients.
+
+### Coverage
+
+Last measured: 190 tests across 34 suites.
+
+| Module | Statements | Branches | Functions |
+|---|---|---|---|
+| `requests` | 97% | 81% | 100% |
+| `balance` | 100% | 75% | 100% |
+| `comments` | 100% | 78% | 100% |
+| `hcm` (factory + Workday) | 100% | 81% | 100% |
+| `scheduler` | 100% | 77% | 100% |
+| `common` | 93% | 100% | 71% |
+| `notifications` | 100% | 100% | 100% |
+| **All files** | **95%** | **78%** | **93%** |
+
+> `sap.adapter.ts` is excluded from meaningful coverage — the SAP adapter is a stub awaiting a real SAP integration contract.
 
 ---
 

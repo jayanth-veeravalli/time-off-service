@@ -3,7 +3,7 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -13,9 +13,9 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { makeSubmitBody } from '../helpers/factories';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { makeSubmitBody } from '../../helpers/factories';
+import { typedQuery } from '../../helpers/db-query';
 
 const SUBMIT_BODY = makeSubmitBody({ ...DEFAULT_KEY });
 

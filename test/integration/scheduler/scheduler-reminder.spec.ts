@@ -3,8 +3,8 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { SchedulerService } from '../../src/scheduler/scheduler.service';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { SchedulerService } from '../../../src/scheduler/scheduler.service';
+import { NotificationsService } from '../../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -16,7 +16,42 @@ import {
   stopMockServer,
   DEFAULT_KEY,
   BalanceKey,
-} from './setup';
+} from '../setup';
+
+describe('RG-8c: reminder job with no pending requests — no notifications sent', () => {
+  let app: INestApplication;
+  let dataSource: DataSource;
+  let module: TestingModule;
+
+  beforeAll(async () => {
+    await startMockServer();
+    ({ app, dataSource, module } = await buildTestModule());
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await stopMockServer();
+  });
+
+  beforeEach(async () => {
+    await resetDb(dataSource);
+    await hcmMock.reset();
+    deterministicUuid.reset();
+    fixedClock.setTime(new Date('2024-01-15T12:00:00.000Z'));
+  });
+
+  it('reminder job with empty DB — notifyPendingRequests never called', async () => {
+    const notifications = module.get(NotificationsService);
+    const spy = jest.spyOn(notifications, 'notifyPendingRequests');
+
+    const scheduler = module.get(SchedulerService);
+    await scheduler.runReminderJob();
+
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+  });
+});
 
 describe('RG-8b: reminder job notifies managers only for non-expired PENDING requests', () => {
   let app: INestApplication;

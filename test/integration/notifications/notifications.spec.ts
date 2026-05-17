@@ -3,8 +3,8 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { SchedulerService } from '../../src/scheduler/scheduler.service';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { SchedulerService } from '../../../src/scheduler/scheduler.service';
+import { NotificationsService } from '../../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -15,7 +15,7 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
+} from '../setup';
 
 const BASE_SUBMIT = {
   employeeId: DEFAULT_KEY.employeeId,

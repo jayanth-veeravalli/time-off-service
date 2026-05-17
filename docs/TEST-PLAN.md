@@ -15,7 +15,7 @@ Unit tests cover logic that can be verified without a database or HTTP call. Thi
 - **Overlap detection** — the date range overlap predicate used before lock acquisition
 - **Scheduler cancellation logic** — the condition `today > startDate` evaluated against a frozen clock
 - **HcmAdapterFactory resolution** — correct adapter returned for `WORKDAY` and `SAP` hcmTypes; error thrown for unknown or missing config
-- **DTO validation** — `class-validator` rules on all DTOs (missing required fields, invalid enum values, `endDate < startDate`, `requestedHours <= 0`)
+- **DTO validation** — `class-validator` rules on all DTOs (missing required fields, invalid enum values, `endDate < startDate`, `requestedHours <= 0`, non-ISO date strings, and the `AlignedTo15Minutes` constraint — datetime times not on a 15-minute boundary are rejected)
 - **HttpExceptionFilter** — correct `{ code, message }` shaping for all exception types
 
 Unit tests do **not** cover repositories, controllers, or the full NestJS DI graph. Those are integration concerns. Mocking the DB in unit tests would only test the mock — the queries that matter are tested at the integration layer against a real database.
@@ -88,6 +88,7 @@ Proportion: ~10% of the suite. Slower than integration tests due to full server 
 | Insufficient balance error | `POST /mock/configure { mode: 'INSUFFICIENT_BALANCE' }` | Returns 422 domain error on debit |
 | Invalid dimensions error | `POST /mock/configure { mode: 'INVALID_DIMENSIONS' }` | Returns 422 domain error on debit |
 | 503 Infrastructure error | `POST /mock/configure { mode: 'SERVER_ERROR' }` | Returns 503 on any call |
+| 503 debit-only error | `POST /mock/configure { mode: 'DEBIT_SERVER_ERROR' }` | Returns 503 on `POST /debit` only — balance reads succeed; used to test the debit error path after the balance check passes |
 | Timeout | `POST /mock/configure { mode: 'TIMEOUT', delayMs: 6000 }` | Delays response past the 5s adapter timeout |
 | Silent acceptance | `POST /mock/configure { mode: 'SILENT_ACCEPT' }` | Accepts any debit without error, even against zero balance — simulates unreliable HCM error signaling (C-6) |
 | Mid-test balance mutation | `POST /mock/mutate` with new balance values | Changes the balance between two calls — simulates a work anniversary running between submit and approve (C-2) |
@@ -112,7 +113,7 @@ Proportion: ~10% of the suite. Slower than integration tests due to full server 
 
 Hitting 90% is not the goal. The goal is covering every path in `RequestsService` that involves an external call or a state transition. A suite that reaches 90% without covering the concurrent-approve scenario (C-1) or the HCM-silent-accept scenario (C-6) has failed regardless of the number.
 
-**Current suite size:** 168 tests across 34 suites (25 unit, 116 integration, 9 e2e). Key additions: RG-1b (concurrent approvals), RG-6b (SILENT_ACCEPT on approve path), G-7 (HCM 4xx on debit), G-4/G-8 (PATCH/reject terminal state guards), G-5 (DTO boundary validation), G-6 (pagination), G-9 (balance param validation), and notification idempotency guards on re-approve/re-reject.
+**Current suite size:** 190 tests across 34 suites. Key additions: RG-1b (concurrent approvals), RG-3/DEBIT_SERVER_ERROR (debit-only error path after balance check passes), RG-6b (SILENT_ACCEPT on approve path), RG-7b/RG-7c (concurrent same-request approve and withdraw idempotency inside lock), RG-8c (reminder job with empty DB), G-7 (HCM 4xx on debit), G-4/G-8 (PATCH/reject terminal state guards), G-5 (DTO boundary validation), G-6 (pagination), G-9 (balance param validation), notification idempotency guards on re-approve/re-reject, and AC-24 (15-minute time boundary validation).
 
 ---
 
@@ -152,7 +153,9 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 
 **Protects:** C-3
 
-**Scenario:** The HCM mock is configured to return 503 on `POST /debit`. A manager approves a PENDING request. The test asserts the API returns 503 HCM_UNAVAILABLE, and a subsequent GET on the request confirms the status is still PENDING (not APPROVED). The mock asserts that `debitBalance` was called once and no DB transition occurred.
+**Scenario (SERVER_ERROR):** The HCM mock is configured to return 503 on all calls. A manager approves a PENDING request. The balance check itself fails, the API returns 503 HCM_UNAVAILABLE, and the DB remains PENDING.
+
+**Scenario (DEBIT_SERVER_ERROR):** The HCM mock is configured with `DEBIT_SERVER_ERROR` — `GET /balance` returns the seeded balance normally, but `POST /debit` returns 503. The balance check passes ReadyOn's guard, the debit call fails, the API returns 503 HCM_UNAVAILABLE, and the DB remains PENDING. This scenario directly exercises the `debitBalance` error path in the adapter.
 
 **Layer:** Integration
 
@@ -222,7 +225,27 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 
 **Protects:** NFR: Idempotency
 
-**Scenario:** A request is approved successfully. The same approve call is made again. The test asserts the second call returns 200 with the APPROVED request, and the HCM mock confirms `debitBalance` was called exactly once across both calls.
+**Scenario:** A request is approved successfully. The same approve call is made again (sequential). The test asserts the second call returns 200 with the APPROVED request, and the HCM mock confirms `debitBalance` was called exactly once across both calls.
+
+**Layer:** Integration
+
+---
+
+### RG-7b: Concurrent approvals of the same request — idempotency guard inside lock
+
+**Protects:** NFR: Idempotency, C-1
+
+**Scenario:** Two approve calls for the same PENDING request are fired simultaneously. Both pass the outer status check while the request is still PENDING. The per-employee lock serializes them: the first acquires the lock, approves, and commits; the second acquires the lock, re-reads the now-APPROVED status, and returns early via the inside-lock idempotency guard. Both calls return 200 APPROVED. The HCM mock confirms `debitBalance` was called exactly once.
+
+**Layer:** Integration
+
+---
+
+### RG-7c: Concurrent withdrawals of the same APPROVED request — idempotency guard inside lock
+
+**Protects:** NFR: Idempotency
+
+**Scenario:** Two withdraw calls for the same APPROVED request are fired simultaneously. Both pass the outer status check. The per-employee lock serializes them: the first acquires the lock, posts the reversal, and commits WITHDRAWN; the second acquires the lock, re-reads the now-WITHDRAWN status, and returns early via the inside-lock idempotency guard. Both calls return 200 WITHDRAWN. The HCM mock confirms `reverseDebit` was called exactly once (the debit entry is absent, not zero — confirming no double-reversal occurred).
 
 **Layer:** Integration
 
@@ -243,6 +266,16 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 **Protects:** FR-13
 
 **Scenario:** Three PENDING requests exist: one with `startDate = yesterday`, one with `startDate = today`, one with `startDate = tomorrow`. The 8am reminder job is triggered manually with a frozen clock. The test asserts that `NotificationService.notifyPendingRequests` is called with only the today and tomorrow requests — not the already-expired one.
+
+**Layer:** Integration
+
+---
+
+### RG-8c: Reminder job with no pending requests — no notifications sent
+
+**Protects:** FR-13
+
+**Scenario:** The reminder job runs against an empty database. The test asserts that `NotificationService.notifyPendingRequests` is never called. Exercises the zero-pending branch of the reminder job loop that was previously untested.
 
 **Layer:** Integration
 
@@ -295,6 +328,16 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 **Scenario:** A request is submitted and approved. A `PATCH /requests/:externalId/manager` with `managerId: 'mgr-2'` is issued. The test asserts a 409 INVALID_TRANSITION response and that the managerId in the DB is unchanged. A separate test verifies the same endpoint succeeds (200) on a PENDING request and that the managerId is updated in the DB.
 
 **Layer:** Integration
+
+---
+
+### RG-15: startDate and endDate time components must be on 15-minute boundaries
+
+**Protects:** AC-24, FR-1
+
+**Scenario:** Three submit requests are made in isolation. (1) `startDate: '2024-03-01T09:10:00.000Z'` — minute 10 is not on a 15-minute boundary; expects 400. (2) `endDate: '2024-03-05T17:20:00.000Z'` — minute 20 is not on a 15-minute boundary; expects 400. (3) `startDate: '2024-03-01T09:15:00.000Z'` with `endDate: '2024-03-01T09:30:00.000Z'` — both on valid boundaries; expects 201 (given sufficient HCM balance). Date-only strings (`YYYY-MM-DD`) bypass the boundary check and must continue to be accepted.
+
+**Layer:** Unit (DTO validation) + Integration (HTTP boundary)
 
 ---
 

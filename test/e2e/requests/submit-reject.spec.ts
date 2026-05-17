@@ -10,7 +10,7 @@ import {
   stopMockServer,
   DEFAULT_KEY,
   E2EApp,
-} from './setup';
+} from '../setup';
 
 interface SubmitResponse {
   status: string;
@@ -23,10 +23,16 @@ interface Transition {
 }
 
 interface GetRequestResponse {
+  status: string;
   transitions: Transition[];
 }
 
-describe('e2e: Submit → Approve happy path', () => {
+interface Comment {
+  body: string;
+  authorType: string;
+}
+
+describe('e2e: Submit → Reject happy path', () => {
   let e2e: E2EApp;
   let dataSource: DataSource;
 
@@ -47,7 +53,7 @@ describe('e2e: Submit → Approve happy path', () => {
     deterministicUuid.reset();
   });
 
-  it('submit returns 201 PENDING, approve returns 200 APPROVED, debitBalance called once', async () => {
+  it('submit, reject with comment — REJECTED status, comment accessible via GET comments', async () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
@@ -68,32 +74,34 @@ describe('e2e: Submit → Approve happy path', () => {
     );
 
     expect(submitRes.status).toBe(201);
-    expect(submitRes.data.status).toBe('PENDING');
-
     const { externalId } = submitRes.data;
 
-    const approveRes = await axios.post<{ status: string }>(
-      `${e2e.baseUrl}/requests/${externalId}/approve`,
+    const rejectRes = await axios.post<{ status: string }>(
+      `${e2e.baseUrl}/requests/${externalId}/reject`,
       {
         actorId: 'mgr-1',
+        comment: 'Budget frozen for Q1',
       },
     );
 
-    expect(approveRes.status).toBe(200);
-    expect(approveRes.data.status).toBe('APPROVED');
+    expect(rejectRes.status).toBe(200);
+    expect(rejectRes.data.status).toBe('REJECTED');
 
-    // transitions in GET response
+    // GET shows REJECTED status and transitions
     const getRes = await axios.get<GetRequestResponse>(
       `${e2e.baseUrl}/requests/${externalId}`,
     );
-    expect(getRes.data.transitions).toHaveLength(2);
-    const approveT = getRes.data.transitions.find(
-      (t) => t.toState === 'APPROVED',
+    expect(getRes.data.status).toBe('REJECTED');
+    const rejectT = getRes.data.transitions.find(
+      (t) => t.toState === 'REJECTED',
     );
-    expect(approveT?.fromState).toBe('PENDING');
+    expect(rejectT?.fromState).toBe('PENDING');
 
-    // HCM debit fired once with correct externalId
-    const debits = await hcmMock.getDebits();
-    expect(debits[externalId]).toBe(40);
+    // comment is accessible
+    const commentsRes = await axios.get<Comment[]>(
+      `${e2e.baseUrl}/requests/${externalId}/comments`,
+    );
+    expect(commentsRes.data).toHaveLength(1);
+    expect(commentsRes.data[0].body).toBe('Budget frozen for Q1');
   });
 });

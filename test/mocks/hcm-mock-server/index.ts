@@ -8,6 +8,7 @@ export type MockMode =
   | 'INSUFFICIENT_BALANCE'
   | 'INVALID_DIMENSIONS'
   | 'SERVER_ERROR'
+  | 'DEBIT_SERVER_ERROR'
   | 'TIMEOUT'
   | 'SILENT_ACCEPT'
   | 'REVERSAL_ERROR';
@@ -91,7 +92,7 @@ app.get('/balance', async (req: Request, res: Response) => {
 app.post('/debit', async (req: Request, res: Response) => {
   await pause();
   if (mode === 'TIMEOUT') return;
-  if (mode === 'SERVER_ERROR')
+  if (mode === 'SERVER_ERROR' || mode === 'DEBIT_SERVER_ERROR')
     return void send(res, responses.debit.serverError);
   if (mode === 'INVALID_DIMENSIONS')
     return void send(res, responses.debit.invalidDims);

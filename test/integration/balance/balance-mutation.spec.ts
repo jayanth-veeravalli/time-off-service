@@ -11,8 +11,8 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { typedQuery } from '../../helpers/db-query';
 
 describe('RG-2: approve re-reads balance after external HCM mutation', () => {
   let app: INestApplication;

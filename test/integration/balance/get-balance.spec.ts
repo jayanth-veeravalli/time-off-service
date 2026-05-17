@@ -10,7 +10,7 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
+} from '../setup';
 
 const BALANCE_QUERY = {
   employerId: DEFAULT_KEY.employerId,

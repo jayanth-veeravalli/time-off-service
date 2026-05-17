@@ -2,7 +2,7 @@
 
 # Time-Off Microservice — Technical Requirements Document
 
-> Related: [Alternatives Considered](./ALTERNATIVES.md) · [Test Plan](./TEST-PLAN.md)
+> Related: [Architecture Decision Record](ADR.md) · [Test Plan](./TEST-PLAN.md)
 
 ---
 
@@ -10,30 +10,22 @@
 
 1. [Overview](#1-overview)
 2. [Goals](#2-goals)
-3. [Challenges](#3-challenges)
-   - [C-1: Concurrent approvals racing on the same balance](#c-1-concurrent-approvals-racing-on-the-same-balance)
-   - [C-2: External balance mutations between submit and approve](#c-2-external-balance-mutations-between-submit-and-approve)
-   - [C-3: Partial failure on approve — DB and HCM out of sync](#c-3-partial-failure-on-approve--db-and-hcm-out-of-sync)
-   - [C-4: Auto-cancellation racing with approval](#c-4-auto-cancellation-racing-with-approval)
-   - [C-5: Multi-employer HCM adapter routing](#c-5-multi-employer-hcm-adapter-routing)
-   - [C-6: HCM error signaling is not guaranteed](#c-6-hcm-error-signaling-is-not-guaranteed)
-4. [Functional Requirements](#4-functional-requirements)
-5. [Non-Functional Requirements](#5-non-functional-requirements)
-6. [Proposed Solution](#6-proposed-solution)
-7. [Why This Approach](#7-why-this-approach)
-8. [Architecture](#8-architecture)
+3. [Functional Requirements](#3-functional-requirements)
+4. [Non-Functional Requirements](#4-non-functional-requirements)
+5. [Proposed Solution](#5-proposed-solution)
+6. [Architecture](#6-architecture)
    - [Module Layout](#module-layout)
    - [Component Responsibilities](#component-responsibilities)
    - [Cross-Cutting Concerns](#cross-cutting-concerns)
    - [HCM Adapter Interface](#hcm-adapter-interface)
    - [System Diagram](#system-diagram)
-9. [Database Schema](#9-database-schema)
+7. [Database Schema](#7-database-schema)
    - [Enum Values](#enum-values)
    - [Access Patterns and Indexes](#access-patterns-and-indexes)
    - [Transactions and Concurrency](#transactions-and-concurrency)
    - [Migrations](#migrations)
    - [Data Lifecycle](#data-lifecycle)
-10. [APIs](#10-apis)
+8. [APIs](#8-apis)
     - [GET /requests](#get-requests--list-and-filter-requests)
     - [POST /requests](#post-requests--submit-a-request)
     - [GET /requests/:externalId](#get-requestsexternalid--fetch-a-request)
@@ -45,7 +37,7 @@
     - [GET /requests/:externalId/comments](#get-requestsexternalidcomments--fetch-comments)
     - [GET /employees/:employeeId/balance](#get-employeesemployeeidbalance--get-current-balance)
     - [HCM Adapter (Internal Contract)](#hcm-adapter-internal-contract)
-11. [Workflows](#11-workflows)
+9. [Workflows](#9-workflows)
     - [State Machine](#state-machine)
     - [Submit Request](#submit-request)
     - [Approve Request](#approve-request)
@@ -54,10 +46,10 @@
     - [Withdraw Request (APPROVED)](#withdraw-request-approved)
     - [Daily Scheduler — 8am Reminder Job](#daily-scheduler--8am-reminder-job)
     - [Daily Scheduler — 11:59pm Cancellation Job](#daily-scheduler--1159pm-cancellation-job)
-12. [Testing](#12-testing)
-13. [Folder Structure](#13-folder-structure)
-14. [Dependencies](#14-dependencies)
-15. [Acceptance Criteria](#15-acceptance-criteria)
+10. [Testing](#10-testing)
+11. [Folder Structure](#11-folder-structure)
+12. [Dependencies](#12-dependencies)
+13. [Acceptance Criteria](#13-acceptance-criteria)
 
 ---
 
@@ -86,105 +78,41 @@ The service is multi-employer: each employer may use a different HCM system (Wor
 
 ---
 
-## 3. Challenges
+## 3. Functional Requirements
 
-### C-1: Concurrent approvals racing on the same balance
-
-Two managers approve separate PENDING requests for the same employee simultaneously. Both read HCM balance independently, both see sufficient balance, both attempt to debit. Together they may overdraw. HCM may or may not reject the second debit — per the brief, this is not guaranteed.
-
-**Why it's hard:** The balance check and the debit are two separate operations across two systems. There is no atomic "check-and-debit" primitive spanning ReadyOn and HCM.
-
-**How we handle it:** A per-employee in-process lock (see Section 6) serializes the full check→debit sequence per employee. No two operations for the same employee run concurrently.
-
----
-
-### C-2: External balance mutations between submit and approve
-
-An employee submits a request against a balance of 80 hours. Before the manager approves, a work anniversary runs in HCM and changes the balance. The manager would be approving against stale data.
-
-**Why it's hard:** ReadyOn has no push mechanism from HCM and no way to know the balance changed.
-
-**How we handle it:** The approve flow re-reads the HCM balance fresh before every debit. The submit-time balance check is advisory; the approve-time check is authoritative.
-
----
-
-### C-3: Partial failure on approve — DB and HCM out of sync
-
-The approve flow must both write `APPROVED` to the DB and debit HCM. These are two separate systems — a distributed transaction is not possible. If the HCM call fails after a DB commit, or vice versa, the systems diverge.
-
-**Why it's hard:** There is no two-phase commit across a local DB and an external HTTP API.
-
-**How we handle it:** The DB write commits only after a successful HCM debit. If the HCM call fails for any reason, the DB remains `PENDING` and the error is returned to the caller. The DB is never written to `APPROVED` speculatively. See Section 9 (Approve workflow).
-
----
-
-### C-4: Auto-cancellation racing with approval
-
-The daily 8am scheduler cancels PENDING requests past their start date. A manager could attempt to approve a request at the same moment the scheduler is cancelling it.
-
-**Why it's hard:** The scheduler job and the approve endpoint run concurrently with no inherent coordination.
-
-**How we handle it:** All state transitions use a conditional DB update (`WHERE status = PENDING`). Whichever operation commits first wins; the second sees the already-transitioned state and returns the appropriate idempotent response or error.
-
----
-
-### C-5: Multi-employer HCM adapter routing
-
-Each employer uses a different HCM. Routing the wrong adapter for an employer silently sends requests to the wrong system or fails with confusing errors.
-
-**Why it's hard:** Adapter resolution is a runtime concern based on employer configuration. Misconfiguration is invisible until a real request is made.
-
-**How we handle it:** An `HcmAdapterFactory` resolves the correct adapter at runtime per employer from `employer_hcm_config`. All adapters implement a shared TypeScript interface. See Section 6 (Architecture).
-
----
-
-### C-6: HCM error signaling is not guaranteed
-
-The brief explicitly states that HCM may not always return errors for insufficient balance or invalid dimensions. ReadyOn cannot rely on HCM to be the only guard.
-
-**Why it's hard:** The service cannot treat HCM error responses as a complete safety net.
-
-**How we handle it:** ReadyOn enforces its own balance check before every HCM debit call: it reads the live HCM balance, sums existing PENDING hours for the same dimensions from the local DB, and verifies the new request fits before making the debit call.
+- **FR-1:** An employee can submit a time-off request specifying `employeeId`, `employerId`, `locationId`, `leaveType`, `year`, `startDate`, `endDate`, `requestedHours`, and `managerId`. `startDate` and `endDate` must be ISO 8601 date strings (`YYYY-MM-DD`) for full-day requests, or ISO 8601 datetime strings for partial-day requests; when a time component is present, it must fall on a 15-minute boundary (`:00`, `:15`, `:30`, or `:45`) with zero seconds.
+- **FR-2:** A submitted request must be rejected if it overlaps in date range with an existing PENDING or APPROVED request for the same employee, leave type, and year.
+- **FR-3:** A submitted request must be rejected if the requested hours exceed the employee's available leave balance.
+- **FR-4:** A manager can approve a PENDING request; the employee's leave balance must be debited on approval.
+- **FR-5:** A manager can reject a PENDING request with an optional comment.
+- **FR-6:** An employee can withdraw a PENDING request.
+- **FR-7:** An employee can withdraw an APPROVED request; the employee's leave balance must be restored on withdrawal.
+- **FR-10:** An employee or manager can add a comment to any request.
+- **FR-11:** Comments on a request can be retrieved.
+- **FR-12:** The current leave balance for an employee can be retrieved from the HCM system.
+- **FR-13:** Managers must be notified daily of PENDING requests assigned to them. PENDING requests that have passed their start date without a manager decision must be automatically cancelled, and the affected employee must be notified.
+- **FR-14:** All request state transitions must be recorded with the actor, previous state, and timestamp.
+- **FR-15:** The employee must be notified on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`.
 
 <div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
-## 4. Functional Requirements
+## 4. Non-Functional Requirements
 
-- **FR-1:** An employee can submit a time-off request specifying `employeeId`, `employerId`, `locationId`, `leaveType`, `year`, `startDate`, `endDate`, `requestedHours`, and `managerId` (the ID of the employee's direct manager — required, used for approval enforcement and notification routing)
-- **FR-2:** A submitted request is rejected if it overlaps in date range with an existing PENDING or APPROVED request for the same employee, leave type, and year
-- **FR-3:** A submitted request is rejected if the requested hours exceed the available balance (`HCM balance − sum of existing PENDING hours`) for the same balance dimensions
-- **FR-4:** A manager can approve a single PENDING request; approval re-validates the balance against HCM and debits HCM on success
-- **FR-5:** A manager can reject a single PENDING request with an optional comment
-- **FR-6:** An employee can withdraw a PENDING request
-- **FR-7:** An employee can withdraw an APPROVED request; withdrawal posts a reversal to HCM
-- **FR-10:** An employee or manager can add a comment to any request
-- **FR-11:** Comments on a request can be retrieved
-- **FR-12:** The current balance for an employee can be retrieved; the response is a real-time pass-through from HCM
-- **FR-13:** Two daily scheduler jobs run independently: (1) an 8am reminder job fetches all PENDING requests where `startDate >= today`, groups them by `managerId`, and calls `notifyPendingRequests(managerId, requests)` once per manager so each manager is alerted only about their own team's pending requests; (2) an 11:59pm cancellation job cancels all PENDING requests where `today > startDate` and notifies each affected employee. The separation gives managers the full day to act after receiving the morning reminder before the end-of-day cancellation fires.
-- **FR-14:** All state transitions are recorded in an audit log (`request_state_transitions`)
-- **FR-15:** The employee is notified via `NotificationService` on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`
+- **Correctness:** Concurrent approvals for the same employee must never result in over-approval. A request must not reach an approved state unless the corresponding balance debit succeeded.
+- **Reliability:** All failures must produce structured, actionable error responses. Infrastructure failures and domain validation failures must be distinguishable by the caller.
+- **Idempotency:** Re-submitting an approve or reject on a request that has already been transitioned must be safe and produce no additional side effects.
+- **Observability:** All interactions with external systems, all state transitions, all scheduled job runs, and all errors must be observable through the service's instrumentation.
+- **Scalability:** v1 targets single-instance deployment. Horizontal scaling is out of scope for v1.
+- **Security:** The service is internal. Authentication is enforced at the API gateway layer. No per-user or per-employee credentials are stored by the service.
+- **Scheduler reliability:** A missed scheduler run must not result in permanently un-cancelled requests. The cancellation condition must be re-evaluated on every subsequent run.
 
 <div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
-## 5. Non-Functional Requirements
-
-- **Correctness:** Balance integrity is guaranteed within a single instance via the per-employee lock and real-time HCM reads. No over-approval is possible for concurrent requests to the same employee.
-- **Reliability:** The service fails closed on all HCM errors. No silent state corruption. Structured error responses distinguish infrastructure failures (503) from domain errors (422).
-- **Idempotency:** Approve and reject are idempotent — re-attempting an already-transitioned request returns 200 with no side effects.
-- **Observability:** Structured logging on all HCM calls (request, response, latency), all state transitions, all scheduler runs, and all errors (with full context).
-- **Scalability note:** The in-process per-employee lock is a single-instance constraint. SQLite does not support row-level locking. Horizontal scaling requires an RDBMS with row-level locking (e.g., PostgreSQL), replacing the in-process lock with `SELECT ... FOR UPDATE` per employee.
-- **Security:** This service is internal. All authentication is handled at the gateway layer via client-id + api-key. No auth logic exists within the service. No credentials are stored except HCM `baseUrl` values in `employer_hcm_config`.
-- **Scheduler reliability:** The daily job is self-correcting — if it misses a run, cancellation catches up on the next execution because the condition is date-based, not run-time-based.
-
-<div align="right"><a href="#top">↑ top</a></div>
-
----
-
-## 6. Proposed Solution
+## 5. Proposed Solution
 
 The Time-Off Microservice is a NestJS/TypeScript service that manages the full lifecycle of employee time-off requests. It is the system of record for request state, but deliberately not the system of record for leave balances — that authority remains with the employer's HCM system. Every balance read and debit flows through the HCM adapter layer in real time; ReadyOn never stores a balance locally.
 
@@ -198,20 +126,7 @@ Two daily scheduler jobs run independently via `@nestjs/schedule`. The 8am remin
 
 ---
 
-## 7. Why This Approach
-
-| Decision | Chosen Approach | Rationale |
-|---|---|---|
-| Balance consistency | HCM-Primary, No Local Cache | HCM is the source of truth — building a local cache creates a second source of truth with no benefit given HCM's 5 9's availability and no rate limiting. See [Decision 1](./ALTERNATIVES.md#decision-1-balance-consistency-strategy). |
-| Multi-employer routing | Runtime Adapter Factory | Multi-employer is a core requirement; static config cannot support employers with different HCM systems. See [Decision 2](./ALTERNATIVES.md#decision-2-hcm-integration-pattern-multi-employer-adapter). |
-| Request expiry | Start-date-based auto-cancel | The meaningful cancellation trigger is the leave window opening with no decision, not an arbitrary duration since submission. See [Decision 3](./ALTERNATIVES.md#decision-3-request-expiry-and-auto-cancellation). |
-| Async queue | Not used in v1 | Adds queue infrastructure complexity not justified by 5 9's HCM availability and no rate limiting. Documented as fallback in [Decision 1-B](./ALTERNATIVES.md#approach-1-b-hcm-primary-with-async-queue-variant). |
-
-<div align="right"><a href="#top">↑ top</a></div>
-
----
-
-## 8. Architecture
+## 6. Architecture
 
 ### Module Layout
 
@@ -316,7 +231,7 @@ flowchart TD
 
 ---
 
-## 9. Database Schema
+## 7. Database Schema
 
 ```mermaid
 erDiagram
@@ -328,8 +243,8 @@ erDiagram
         string locationId
         string leaveType
         int year
-        date startDate
-        date endDate
+        datetime startDate
+        datetime endDate
         int requestedHours
         string status
         string submittedById
@@ -425,7 +340,7 @@ All records are retained indefinitely in v1. No archival or deletion policy is d
 
 ---
 
-## 10. APIs
+## 8. APIs
 
 All endpoints return errors as `{ code: string, message: string }`. HTTP status codes are first-class contract.
 
@@ -456,8 +371,8 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
       "locationId": "string",
       "leaveType": "string",
       "year": "integer",
-      "startDate": "date",
-      "endDate": "date",
+      "startDate": "datetime",
+      "endDate": "datetime",
       "requestedHours": "integer",
       "status": "string",
       "managerId": "string",
@@ -490,8 +405,8 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
   "locationId": "string, required",
   "leaveType": "VACATION | SICK, required",
   "year": "integer, required",
-  "startDate": "date (YYYY-MM-DD), required",
-  "endDate": "date (YYYY-MM-DD), required, >= startDate",
+  "startDate": "ISO 8601 date (YYYY-MM-DD) or datetime; if datetime, time must be on a 15-minute boundary (HH:MM must be :00, :15, :30, or :45; seconds must be 00)",
+  "endDate": "ISO 8601 date or datetime, required, >= startDate; same 15-minute boundary rule applies when time is present",
   "requestedHours": "integer > 0, required",
   "submittedById": "string, required",
   "managerId": "string, required — ID of the employee's direct manager"
@@ -739,7 +654,7 @@ The `requestExternalId` is passed on every `debitBalance` and `reverseDebit` cal
 
 ---
 
-## 11. Workflows
+## 9. Workflows
 
 ### State Machine
 
@@ -1016,7 +931,7 @@ flowchart TD
 
 ---
 
-## 12. Testing
+## 10. Testing
 
 The primary testing challenge in this service is the dependency on an external HCM system that is not under our control, combined with time-sensitive scheduler behavior and concurrency scenarios that require precise sequencing. A real HTTP mock HCM server (not jest mocks) is required to test the full adapter call path, error propagation, and mid-test balance changes that simulate external mutations. The `ClockService` and `UuidService` injection points exist specifically to make scheduler timing and UUID generation deterministic in tests.
 
@@ -1026,7 +941,7 @@ See [`docs/TEST-PLAN.md`](./TEST-PLAN.md) for the full testing strategy.
 
 ---
 
-## 13. Folder Structure
+## 11. Folder Structure
 
 ```
 src/
@@ -1089,7 +1004,7 @@ test/
 
 ---
 
-## 14. Dependencies
+## 12. Dependencies
 
 | Package | Purpose |
 |---|---|
@@ -1112,7 +1027,7 @@ test/
 
 ---
 
-## 15. Acceptance Criteria
+## 13. Acceptance Criteria
 
 | # | Criterion | Maps to |
 |---|---|---|
@@ -1137,5 +1052,6 @@ test/
 | AC-21 | Approve and reject by an actorId that does not match managerId return 403 UNAUTHORIZED_ACTOR | managerId enforcement |
 | AC-22 | GET /requests with status=PENDING returns only PENDING requests; with employeeId returns only that employee's requests | GET /requests |
 | AC-23 | PATCH /requests/:externalId/manager succeeds on a PENDING request; returns 409 on APPROVED, REJECTED, WITHDRAWN, or CANCELLED | PATCH /manager |
+| AC-24 | A submitted request with a datetime `startDate` or `endDate` whose time component is not on a 15-minute boundary (`:00`, `:15`, `:30`, `:45`) is rejected with 400 | FR-1 |
 
 <div align="right"><a href="#top">↑ top</a></div>

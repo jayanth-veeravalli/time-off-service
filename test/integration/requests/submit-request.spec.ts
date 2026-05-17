@@ -11,9 +11,9 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { makeSubmitBody } from '../helpers/factories';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { makeSubmitBody } from '../../helpers/factories';
+import { typedQuery } from '../../helpers/db-query';
 
 const SUBMIT_BODY = makeSubmitBody({ ...DEFAULT_KEY });
 
@@ -217,5 +217,34 @@ describe('POST /requests (submit)', () => {
       .post('/requests')
       .send({ ...SUBMIT_BODY, startDate: '2024-03-10', endDate: '2024-03-01' })
       .expect(400);
+  });
+
+  it('startDate time not on a 15-minute boundary returns 400', async () => {
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({ ...SUBMIT_BODY, startDate: '2024-03-01T09:10:00.000Z' })
+      .expect(400);
+  });
+
+  it('endDate time not on a 15-minute boundary returns 400', async () => {
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({ ...SUBMIT_BODY, endDate: '2024-03-05T17:20:00.000Z' })
+      .expect(400);
+  });
+
+  it('datetime startDate and endDate on 15-minute boundaries are accepted', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({
+        ...SUBMIT_BODY,
+        startDate: '2024-03-01T09:00:00.000Z',
+        endDate: '2024-03-01T09:30:00.000Z',
+        requestedHours: 1,
+      })
+      .expect(201);
   });
 });

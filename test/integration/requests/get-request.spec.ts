@@ -11,8 +11,8 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { makeSubmitBody } from '../helpers/factories';
+} from '../setup';
+import { makeSubmitBody } from '../../helpers/factories';
 
 const SUBMIT_BODY = makeSubmitBody({ ...DEFAULT_KEY });
 

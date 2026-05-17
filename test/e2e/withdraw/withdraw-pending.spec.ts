@@ -10,9 +10,9 @@ import {
   stopMockServer,
   DEFAULT_KEY,
   E2EApp,
-} from './setup';
+} from '../setup';
 
-describe('e2e: Approve → Withdraw (APPROVED with HCM reversal)', () => {
+describe('e2e: Submit → Withdraw (PENDING) happy path', () => {
   let e2e: E2EApp;
   let dataSource: DataSource;
 
@@ -33,7 +33,7 @@ describe('e2e: Approve → Withdraw (APPROVED with HCM reversal)', () => {
     deterministicUuid.reset();
   });
 
-  it('submit → approve → withdraw — WITHDRAWN, reverseDebit called with correct externalId', async () => {
+  it('submit then withdraw PENDING — 200 WITHDRAWN, no HCM call', async () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
@@ -50,15 +50,8 @@ describe('e2e: Approve → Withdraw (APPROVED with HCM reversal)', () => {
       managerId: 'mgr-1',
     });
 
+    expect(submitRes.status).toBe(201);
     const { externalId } = submitRes.data as { externalId: string };
-
-    await axios.post(`${e2e.baseUrl}/requests/${externalId}/approve`, {
-      actorId: 'mgr-1',
-    });
-
-    // debit recorded after approve
-    const debitsAfterApprove = await hcmMock.getDebits();
-    expect(debitsAfterApprove[externalId]).toBe(40);
 
     const withdrawRes = await axios.post<{ status: string }>(
       `${e2e.baseUrl}/requests/${externalId}/withdraw`,
@@ -70,8 +63,7 @@ describe('e2e: Approve → Withdraw (APPROVED with HCM reversal)', () => {
     expect(withdrawRes.status).toBe(200);
     expect(withdrawRes.data.status).toBe('WITHDRAWN');
 
-    // reversal cleared the debit entry
-    const debitsAfterWithdraw = await hcmMock.getDebits();
-    expect(debitsAfterWithdraw[externalId]).toBeUndefined();
+    const debits = await hcmMock.getDebits();
+    expect(Object.keys(debits)).toHaveLength(0);
   });
 });

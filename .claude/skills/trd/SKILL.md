@@ -7,10 +7,10 @@ description: Use this skill whenever producing a Technical Requirements Document
 
 A TRD captures architectural decisions that have already been made. It is the single design narrative for a project, paired with two companion documents:
 
-- `docs/ALTERNATIVES.md` — full analysis of approaches considered (see the `alternatives` skill)
+- `docs/ADR.md` — Architecture Decision Record: problems, approaches considered, and decision rationale (see the `alternatives` skill)
 - `docs/TEST-PLAN.md` — testing strategy and verification approach (see the `test-plan` skill)
 
-The TRD links to both. It does not duplicate their content.
+The TRD links to both. It does not duplicate their content. The problems that shaped the design and the reasoning behind approach selection live in the ADR — the TRD records *what* was built and *how*.
 
 ## Output location
 
@@ -18,12 +18,12 @@ Write to `docs/TRD.md` unless the user specifies otherwise.
 
 ## Core principles
 
-- **The Challenges section is the spine.** Reviewers read it first to gauge whether the author understood the problem. Make it excellent.
+- **Requirements describe what, not how.** Functional and non-functional requirements must be solution-agnostic. No class names, table names, library names, or implementation mechanisms in FR/NFR.
 - **Take positions, don't enumerate.** Every decision in the doc reflects a choice. Hedging language signals incomplete thinking.
 - **Be specific to this project.** No "follow SOLID" or "use clean architecture" generalities.
 - **Out of scope is a deliberate engineering choice.** Non-goals get reasoning, not apologies.
 - **Diagrams add information beyond prose.** If a diagram restates the surrounding text, delete it.
-- **Link, don't duplicate.** Alternatives analysis lives in `ALTERNATIVES.md`. Testing strategy lives in `TEST-PLAN.md`. The TRD references them.
+- **Link, don't duplicate.** Decision rationale lives in `ADR.md`. Testing strategy lives in `TEST-PLAN.md`. The TRD references them.
 
 ## Diagrams
 
@@ -42,30 +42,20 @@ Label every node and edge meaningfully.
 2-3 sentences. What we're building, why, and the core technical tension.
 
 Include links to companion documents at the top:
-> Related: [Alternatives Considered](./ALTERNATIVES.md) · [Test Plan](./TEST-PLAN.md)
+> Related: [Architecture Decision Record](./ADR.md) · [Test Plan](./TEST-PLAN.md)
 
-### 2. Goals and Non-Goals
+### 2. Goals
 - **Goals:** bulleted, measurable where possible
 - **Non-Goals:** explicit out-of-scope items for v1, each with reasoning
 
-### 3. Challenges
-Numbered list of the hard problems this design must solve. For each:
-- **Challenge (C-N):** one-sentence description with stable identifier
-- **Why it's hard:** the underlying tension or constraint
-- **How we handle it:** pointer to the section that addresses it
+### 3. Functional Requirements
+Numbered list (FR-1, FR-2, ...). Each one testable. Describe *what*, not *how* — no implementation detail, no class names, no library names, no mechanism descriptions.
 
-This is the spine of the document. Every challenge here must be addressed somewhere in the design. The stable identifiers (C-1, C-2, ...) let the test plan reference specific challenges in its regression guards.
+### 4. Non-Functional Requirements
+Bulleted quality attributes. Each must read as a requirement any valid implementation would need to satisfy — not a description of how the chosen implementation happens to satisfy it. No lock names, DB engine specifics, or library references.
 
-### 4. Functional Requirements
-Numbered list (FR-1, FR-2, ...). Each one testable. Avoid implementation detail — describe *what*, not *how*.
-
-### 5. Decision Summary
-For each major decision (data model, consistency model, transactional boundaries, conflict resolution, async architecture, external integration patterns):
-- **Decision:** what was chosen
-- **Rationale:** one or two sentences on why
-- **See:** link to the relevant section in `ALTERNATIVES.md` for the full analysis
-
-Keep this section tight. The detailed comparison of alternatives, pros/cons, and pressure-test outcomes belongs in `ALTERNATIVES.md`.
+### 5. Proposed Solution
+2-3 paragraphs of prose describing the chosen approach end-to-end: what each component owns, how the pieces interact, how the key design problems are resolved. This is the first place implementation detail appears in the TRD. Links to ADR.md for the decision rationale behind major choices.
 
 ### 6. Architecture
 - Module/component layout with each component's ownership
@@ -112,14 +102,17 @@ Then: **See [`docs/TEST-PLAN.md`](./TEST-PLAN.md) for the full testing strategy.
 ### 11. Folder Structure
 Tree view of the proposed project layout (modules, controllers, services, DTOs, entities).
 
-### 12. Acceptance Criteria
-How we know v1 is done. Map back to FRs and challenges.
+### 12. Dependencies
+List of runtime and dev dependencies with one-line justifications for non-obvious choices.
+
+### 13. Acceptance Criteria
+How we know v1 is done. Map back to FRs.
 
 ## Common failure modes to avoid
 
+- **Implementation detail in FR/NFR.** If an FR mentions a class name, lock mechanism, table name, or HTTP status code, it's describing the solution, not the requirement. Move those details to Section 5 or 6.
 - **Diagrams that restate prose.** A diagram must reveal structure, sequence, or relationships that text struggles to convey.
 - **ER diagrams without types or cardinality.** "User → Order" is not a schema. Include field types and `||--o{` style cardinality markers.
 - **Mixing requirements with implementation.** FRs/NFRs describe *what* and *how well*; the architecture and data sections describe *how*.
-- **Stale Section 3.** If you add a workflow or a new external dependency, the challenges it introduces belong in Section 3 too.
-- **Duplicating ALTERNATIVES content.** Section 6 is a summary with links. If you find yourself writing full pros/cons or comparison matrices in the TRD, move them to `ALTERNATIVES.md`.
-- **Duplicating TEST-PLAN content.** Section 11 is a one-paragraph note plus a link. If you find yourself writing about test pyramids or mock servers in the TRD, move them to `TEST-PLAN.md`.
+- **Duplicating ADR content.** Section 5 links to ADR.md for rationale. If you find yourself writing pros/cons or comparison matrices in the TRD, move them to ADR.md.
+- **Duplicating TEST-PLAN content.** Section 10 is a one-paragraph note plus a link. If you find yourself writing about test pyramids or mock servers in the TRD, move them to TEST-PLAN.md.

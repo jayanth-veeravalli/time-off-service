@@ -3,8 +3,8 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { SchedulerService } from '../../src/scheduler/scheduler.service';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { SchedulerService } from '../../../src/scheduler/scheduler.service';
+import { NotificationsService } from '../../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -16,8 +16,8 @@ import {
   stopMockServer,
   DEFAULT_KEY,
   BalanceKey,
-} from './setup';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { typedQuery } from '../../helpers/db-query';
 
 describe('RG-8: cancellation job cancels only past-startDate PENDING requests', () => {
   let app: INestApplication;

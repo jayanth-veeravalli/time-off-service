@@ -3,7 +3,7 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -13,9 +13,9 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { makeSubmitBody } from '../helpers/factories';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { makeSubmitBody } from '../../helpers/factories';
+import { typedQuery } from '../../helpers/db-query';
 
 const SUBMIT_BODY = makeSubmitBody({ ...DEFAULT_KEY });
 
@@ -239,6 +239,33 @@ describe('POST /requests/:externalId/approve', () => {
       [externalId],
     );
     expect(rows[0].status).toBe('PENDING');
+  });
+
+  it('balance check passes but HCM debit returns 503 — 503 HCM_UNAVAILABLE, DB stays PENDING (RG-3)', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    // getBalance will still return 80 (balance endpoint unaffected); only /debit fails
+    await hcmMock.configure('DEBIT_SERVER_ERROR');
+
+    const res = await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/approve`)
+      .send({ actorId: 'mgr-1' })
+      .expect(503);
+
+    expect((res.body as { code: string }).code).toBe('HCM_UNAVAILABLE');
+
+    const rows = await typedQuery<{ status: string }>(
+      dataSource,
+      'SELECT status FROM time_off_requests WHERE externalId = ?',
+      [externalId],
+    );
+    expect(rows[0].status).toBe('PENDING');
+
+    const debits = await hcmMock.getDebits();
+    expect(Object.keys(debits)).toHaveLength(0);
   });
 
   it('ReadyOn balance guard blocks approve even in SILENT_ACCEPT mode (C-6, RG-6b)', async () => {

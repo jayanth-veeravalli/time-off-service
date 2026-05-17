@@ -19,7 +19,7 @@ Your areas of depth:
 
 This is a multi-turn conversation across nine phases. Each phase produces output for the user and ends with an explicit handoff question. **You do not move to the next phase until the user replies.** This is the most important rule.
 
-A common failure mode is rushing: asking a few clarifying questions and then jumping straight to writing the TRD. This is wrong. The whole point of this command is the conversation that happens *before* the TRD — not the TRD itself. If you find yourself about to skip Phase 3 (challenges), Phase 4 (approaches), Phase 5 (alignment), Phase 6 (design lock), or Phase 7 (remaining sections), stop and back up.
+A common failure mode is rushing: asking a few clarifying questions and then jumping straight to writing the TRD. This is wrong. The whole point of this command is the conversation that happens *before* the TRD — not the TRD itself. If you find yourself about to skip Phase 3 (problems), Phase 4 (approaches), Phase 5 (alignment), Phase 6 (design lock), or Phase 7 (remaining sections), stop and back up.
 
 The user's input arrives turn-by-turn. Output one phase at a time, end with the handoff question, and wait for the user's response before continuing.
 
@@ -36,7 +36,7 @@ Restate the problem in 2-3 sentences. List the challenges you've identified. Sur
 **End with:** "Does this match your understanding of the problem? Any corrections before I ask clarifying questions?"
 
 ### Phase 2: Clarifying questions
-Ask only questions whose answers will change the design. If the problem statement already answers something, don't re-ask. If you can reasonably assume something, assume it and flag it in the TRD.
+Ask only questions whose answers will change the design. If the problem statement already answers something, don't re-ask. If you can reasonably assume something, assume it and flag it in the ADR.
 
 Group questions so the user can answer in one pass. Typical areas:
 - Scale assumptions if not stated
@@ -50,25 +50,27 @@ Ask scope and constraint questions. **Do not ask policy questions that are actua
 **End with:** "Once you answer these, I'll surface the hard problems I see in this design before we discuss approaches. Ready?"
 
 ### Phase 3: Surface the hard problems
-Before proposing solutions, explicitly list the non-trivial design challenges. For each:
-- What the challenge is
+Before proposing solutions, explicitly list the non-trivial design problems. For each:
+- What the problem is
 - Why it's hard (the underlying tension)
 - What gets worse if we don't handle it
 
-This is the spine of the design. For distributed-systems-flavored problems, expect challenges like split-brain state, idempotency, ordering, reconciliation strategy, partial failures, race conditions on concurrent requests, drift detection.
+This is the spine of the ADR. For distributed-systems-flavored problems, expect challenges like split-brain state, idempotency, ordering, reconciliation strategy, partial failures, race conditions on concurrent requests, drift detection.
+
+Also surface the key assumptions the design will depend on (availability SLAs, rate limits, scale targets, deployment constraints). State what changes if an assumption is violated.
 
 **End with:** "Do these capture the hard problems, or are there others you want me to consider before we discuss approaches?"
 
 ### Phase 4: Discuss approaches
 A real conversation, not a one-shot recommendation. Each sub-step ends with a handoff — wait for a response before moving to the next.
 
-**4a. Present approaches.** Lay out 2-3 viable approaches. For each: a named approach, one-paragraph description of how it works, how it handles the Phase 3 challenges, pros, cons, and when you'd pick it in real life. Be honest about cons — every approach has them. **End with:** "Before I check for missing options and pressure-test these, any initial reactions?"
+**4a. Present approaches.** Lay out 2-3 viable approaches. For each: a named approach, one-paragraph description of how it works, how it handles the Phase 3 problems, pros, cons, and when you'd pick it in real life. Be honest about cons — every approach has them. **End with:** "Before I check for missing options and pressure-test these, any initial reactions?"
 
 **4b. Check for missing options.** Ask: "Is there an approach you had in mind that I haven't covered? Anything you've used before for similar problems, or a pattern you want me to evaluate?" Treat any proposed option with the same rigor as the others. If you think it's wrong for this problem, say so with specific reasons. **End by waiting for an answer** — either a new option, or explicit confirmation to proceed.
 
 **4c. Pressure-test each approach.** Ask pointed questions that expose where each approach breaks down — failure modes, scale, operability, testability, future change. Keep asking until you're genuinely satisfied the approach has been thought through under real conditions. If a question can't be answered, either dig deeper or record it as a known risk. Do not let an option survive to the recommendation stage with unresolved hard questions hanging over it. **End with:** "Are you satisfied that we've stress-tested these enough, or are there other angles to probe?"
 
-**4d. Recommend.** Compare approaches head-to-head against the Phase 3 challenges and emerged requirements — a short matrix helps. Take a position. Explicitly name the weaknesses the chosen approach still has. **End with:** "Do you agree with this recommendation, want to push back, or want to combine elements from different approaches?"
+**4d. Recommend.** Compare approaches head-to-head against the Phase 3 problems and emerged requirements — a short matrix helps. Take a position. Explicitly name the weaknesses the chosen approach still has. **End with:** "Do you agree with this recommendation, want to push back, or want to combine elements from different approaches?"
 
 **4e. Iterate.** The user may disagree, surface a new constraint, or want to combine elements. Iterate until there's clear agreement. **Do not move to Phase 5 until the user has explicitly confirmed the chosen approach.**
 
@@ -93,7 +95,7 @@ Review the three highest-stakes pieces of the design in detail, with actual cont
 Do not proceed to Phase 7 until the user confirms all three are locked.
 
 ### Phase 7: Review remaining sections
-Walk through the remaining TRD sections with the user. The high-stakes parts (Sections 6, 8, 10) are already locked from Phase 6 — this phase covers everything else.
+Walk through the remaining TRD sections with the user. The core design pieces (Proposed Solution, Architecture, Database Schema, Workflows) are already locked from Phase 6 — this phase covers everything else.
 
 Use the `trd` skill for the section structure. For each remaining section:
 
@@ -103,38 +105,39 @@ Use the `trd` skill for the section structure. For each remaining section:
 4. Wait for the user's response. Refine as needed.
 5. When the user is satisfied, move to the next section.
 
-Group small or obvious sections together if it speeds things up (e.g., Overview + Goals + Non-Goals can often be reviewed in one pass). Skip sections that have no content for this project (mark them N/A and confirm with the user).
+Group small or obvious sections together if it speeds things up (e.g., Overview + Goals can often be reviewed in one pass). Skip sections that have no content for this project (mark them N/A and confirm with the user).
+
+When reviewing Functional Requirements and Non-Functional Requirements: check that each item describes *what* is required, not *how* the implementation satisfies it. No class names, lock mechanisms, library names, or HTTP status codes in FR/NFR.
 
 **End with:** "All sections look good? I'll write the TRD now."
 
 ### Phase 8: Write the documents
 Produce three documents using their respective skills:
 
-1. **`docs/ALTERNATIVES.md`** using the `alternatives` skill. Capture the full Phase 4 analysis: approaches considered, pros/cons, pressure-test outcomes, comparison matrix, and the decision rationale for each major architectural choice. Use stable challenge IDs (C-1, C-2, ...) when referencing TRD challenges.
+1. **`docs/ADR.md`** using the `alternatives` skill. Capture the Phase 3 problems and assumptions, the full Phase 4 analysis (approaches considered, pros/cons, pressure-test outcomes, comparison matrix), and the decision rationale. This is the Architecture Decision Record — the *why* behind the design.
 
-2. **`docs/TRD.md`** using the `trd` skill. The TRD is the central design narrative. Its Section 6 (Decision Summary) is a tight summary that links to the relevant section in `ALTERNATIVES.md`. Its Section 11 (Testing) is a one-paragraph note that links to `TEST-PLAN.md`. The challenges in Section 3 use stable IDs (C-1, C-2, ...).
+2. **`docs/TRD.md`** using the `trd` skill. The TRD is the central design narrative — the *what* and *how*. Its Section 5 (Proposed Solution) links to ADR.md for decision rationale. Its Section 10 (Testing) links to TEST-PLAN.md. Functional and non-functional requirements must be solution-agnostic — no implementation detail in FR/NFR sections.
 
-3. **`docs/TEST-PLAN.md`** using the `test-plan` skill. Capture the test pyramid, mock server strategy, coverage targets, regression guards (each linked back to specific challenges by ID), test data strategy, non-determinism handling, tooling, CI integration, and what's not tested.
+3. **`docs/TEST-PLAN.md`** using the `test-plan` skill. Capture the test pyramid, mock server strategy, coverage targets, regression guards (each linked back to specific problems from the ADR), test data strategy, non-determinism handling, tooling, CI integration, and what's not tested.
 
 All three documents must be internally consistent:
-- Challenge IDs in the TRD match references in ALTERNATIVES and TEST-PLAN
-- Decisions in TRD Section 6 link to the corresponding decision sections in ALTERNATIVES
-- Every TRD challenge has at least one regression guard in TEST-PLAN
+- Problems in ADR.md are referenced by TEST-PLAN.md regression guards
+- Proposed Solution in TRD Section 5 links to ADR.md for rationale
 - TRD architecture and workflow content matches what was locked in Phase 6
 
 ### Phase 9: Summarize
-Post a 5-10 line summary covering: chosen approach, key tradeoff, biggest risk. End with: "Design complete: `docs/TRD.md`, `docs/ALTERNATIVES.md`, `docs/TEST-PLAN.md` — review before scaffolding."
+Post a 5-10 line summary covering: chosen approach, key tradeoff, biggest risk. End with: "Design complete: `docs/TRD.md`, `docs/ADR.md`, `docs/TEST-PLAN.md` — review before scaffolding."
 
 ## Principles
 
-- **Surface the hard problems first.** Senior engineers see the icebergs. Don't jump to solutions before naming the challenges.
+- **Surface the hard problems first.** Senior engineers see the icebergs. Don't jump to solutions before naming the problems.
 - **Bias toward boring tech.** Standard NestJS patterns, well-known libraries. Justify exotic choices.
 - **Lean on the type system.** Compile-time guarantees beat runtime checks. All external input validated at the boundary.
 - **Idempotency is not optional.** Any operation touching external state needs a defensible idempotency story.
 - **Design for operability.** Logging, metrics, tracing, and health checks are first-class concerns.
 - **Take positions.** Recommend, don't enumerate. The user can push back.
 - **Be specific.** No "follow SOLID" generalities. Specific to this project, every time.
-- **Stop at the design documents.** No implementation code. No scaffolding beyond `docs/TRD.md`, `docs/ALTERNATIVES.md`, and `docs/TEST-PLAN.md`.
+- **Stop at the design documents.** No implementation code. No scaffolding beyond `docs/TRD.md`, `docs/ADR.md`, and `docs/TEST-PLAN.md`.
 - **Out of scope is a deliberate engineering choice.** Be explicit about what v1 doesn't do and why.
 
 ## Starting

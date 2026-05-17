@@ -3,7 +3,7 @@ import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
-import { SchedulerService } from '../../src/scheduler/scheduler.service';
+import { SchedulerService } from '../../../src/scheduler/scheduler.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -14,8 +14,8 @@ import {
   startMockServer,
   stopMockServer,
   DEFAULT_KEY,
-} from './setup';
-import { typedQuery } from '../helpers/db-query';
+} from '../setup';
+import { typedQuery } from '../../helpers/db-query';
 
 describe('RG-4: scheduler cancel races with approve', () => {
   let app: INestApplication;
