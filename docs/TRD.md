@@ -303,7 +303,7 @@ erDiagram
 | Fetch all requests for an employee | `(employeeId)` on `time_off_requests` |
 | Fetch all requests for an employer | `(employerId)` on `time_off_requests` |
 | Fetch all requests for a location | `(locationId)` on `time_off_requests` |
-| Check date overlap on submit | Composite `(employeeId, employerId, locationId, leaveType, year, status)` on `time_off_requests` |
+| Check date overlap on submit | Composite `(employeeId, employerId, locationId, leaveType, year, status)` narrows to the employee's active requests; `(startDate)` and `(endDate)` individual indexes support the range conditions `startDate <= :endDate` and `endDate >= :startDate` |
 | Sum PENDING hours on submit/approve | Same composite index |
 | Scheduler: find PENDING requests past `startDate` | Composite `(status, startDate)` on `time_off_requests` |
 | Scheduler: find PENDING requests for reminders | Same composite index |

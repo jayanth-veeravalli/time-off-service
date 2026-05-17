@@ -45,9 +45,11 @@ export class TimeOffRequestEntity {
   @Column({ nullable: false })
   year: number;
 
+  @Index()
   @Column({ type: 'datetime', nullable: false })
   startDate: string;
 
+  @Index()
   @Column({ type: 'datetime', nullable: false })
   endDate: string;
 
