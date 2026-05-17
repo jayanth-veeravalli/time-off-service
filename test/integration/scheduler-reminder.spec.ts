@@ -1,4 +1,5 @@
-import request = require('supertest');
+import type { Server } from 'http';
+import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
@@ -42,10 +43,14 @@ describe('RG-8b: reminder job notifies managers only for non-expired PENDING req
   it('notifyPendingRequests called with only today+future requests, not past', async () => {
     await seedHcmConfig(dataSource);
 
-    const seedAndSubmit = async (employeeId: string, startDate: string, endDate: string) => {
+    const seedAndSubmit = async (
+      employeeId: string,
+      startDate: string,
+      endDate: string,
+    ) => {
       const key: BalanceKey = { ...DEFAULT_KEY, employeeId };
       await hcmMock.seed(key, 80);
-      const res = await request(app.getHttpServer())
+      const res = await request(app.getHttpServer() as Server)
         .post('/requests')
         .send({
           employeeId,
@@ -75,7 +80,9 @@ describe('RG-8b: reminder job notifies managers only for non-expired PENDING req
 
     expect(spy).toHaveBeenCalledTimes(1);
     const notifiedRequests = spy.mock.calls[0][1];
-    const notifiedIds = (notifiedRequests as Array<{ externalId: string }>).map((r) => r.externalId);
+    const notifiedIds = (notifiedRequests as Array<{ externalId: string }>).map(
+      (r) => r.externalId,
+    );
 
     expect(notifiedIds).toContain(todayId);
     expect(notifiedIds).toContain(futureId);

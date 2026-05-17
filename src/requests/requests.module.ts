@@ -12,7 +12,10 @@ import { LockService } from './lock.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TimeOffRequestEntity, RequestStateTransitionEntity]),
+    TypeOrmModule.forFeature([
+      TimeOffRequestEntity,
+      RequestStateTransitionEntity,
+    ]),
     CommentsModule,
     HcmModule,
     NotificationsModule,

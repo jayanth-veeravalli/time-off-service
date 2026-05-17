@@ -44,7 +44,11 @@ export async function buildTestModule(): Promise<{
 
   const app = module.createNestApplication();
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
   await app.init();
@@ -81,34 +85,40 @@ export interface BalanceKey {
   year: number;
 }
 
+function hcmBaseUrl(): string {
+  return `http://localhost:${mockPort}`;
+}
+
 export const hcmMock = {
   url(): string {
-    return `http://localhost:${mockPort}`;
+    return hcmBaseUrl();
   },
 
   async seed(key: BalanceKey, balanceHours: number): Promise<void> {
-    await axios.post(`${this.url()}/mock/seed`, { key, balanceHours });
+    await axios.post(`${hcmBaseUrl()}/mock/seed`, { key, balanceHours });
   },
 
   async reset(): Promise<void> {
-    await axios.post(`${this.url()}/mock/reset`);
+    await axios.post(`${hcmBaseUrl()}/mock/reset`);
   },
 
   async configure(mode: MockMode, delayMs?: number): Promise<void> {
-    await axios.post(`${this.url()}/mock/configure`, { mode, delayMs });
+    await axios.post(`${hcmBaseUrl()}/mock/configure`, { mode, delayMs });
   },
 
   async mutate(key: BalanceKey, balanceHours: number): Promise<void> {
-    await axios.post(`${this.url()}/mock/mutate`, { key, balanceHours });
+    await axios.post(`${hcmBaseUrl()}/mock/mutate`, { key, balanceHours });
   },
 
   async getDebits(): Promise<Record<string, number>> {
-    const res = await axios.get(`${this.url()}/mock/debits`);
+    const res = await axios.get(`${hcmBaseUrl()}/mock/debits`);
     return res.data as Record<string, number>;
   },
 
   async getBalance(key: BalanceKey): Promise<number> {
-    const res = await axios.get(`${this.url()}/mock/balance`, { params: key });
+    const res = await axios.get(`${hcmBaseUrl()}/mock/balance`, {
+      params: key,
+    });
     return (res.data as { balanceHours: number }).balanceHours;
   },
 };

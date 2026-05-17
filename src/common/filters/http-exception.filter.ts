@@ -43,8 +43,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     this.logger.error('Unhandled exception', exception);
-    response
-      .status(HttpStatus.INTERNAL_SERVER_ERROR)
-      .json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+    response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
   }
 }

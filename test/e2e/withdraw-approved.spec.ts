@@ -52,15 +52,20 @@ describe('e2e: Approve → Withdraw (APPROVED with HCM reversal)', () => {
 
     const { externalId } = submitRes.data as { externalId: string };
 
-    await axios.post(`${e2e.baseUrl}/requests/${externalId}/approve`, { actorId: 'mgr-1' });
+    await axios.post(`${e2e.baseUrl}/requests/${externalId}/approve`, {
+      actorId: 'mgr-1',
+    });
 
     // debit recorded after approve
     const debitsAfterApprove = await hcmMock.getDebits();
     expect(debitsAfterApprove[externalId]).toBe(40);
 
-    const withdrawRes = await axios.post(`${e2e.baseUrl}/requests/${externalId}/withdraw`, {
-      actorId: 'emp-1',
-    });
+    const withdrawRes = await axios.post<{ status: string }>(
+      `${e2e.baseUrl}/requests/${externalId}/withdraw`,
+      {
+        actorId: 'emp-1',
+      },
+    );
 
     expect(withdrawRes.status).toBe(200);
     expect(withdrawRes.data.status).toBe('WITHDRAWN');

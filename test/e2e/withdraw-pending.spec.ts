@@ -53,9 +53,12 @@ describe('e2e: Submit → Withdraw (PENDING) happy path', () => {
     expect(submitRes.status).toBe(201);
     const { externalId } = submitRes.data as { externalId: string };
 
-    const withdrawRes = await axios.post(`${e2e.baseUrl}/requests/${externalId}/withdraw`, {
-      actorId: 'emp-1',
-    });
+    const withdrawRes = await axios.post<{ status: string }>(
+      `${e2e.baseUrl}/requests/${externalId}/withdraw`,
+      {
+        actorId: 'emp-1',
+      },
+    );
 
     expect(withdrawRes.status).toBe(200);
     expect(withdrawRes.data.status).toBe('WITHDRAWN');

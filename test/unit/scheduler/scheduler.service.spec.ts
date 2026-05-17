@@ -2,13 +2,27 @@ import { SchedulerService } from '../../../src/scheduler/scheduler.service';
 import { RequestStatus } from '../../../src/common/types';
 import { FixedClockService } from '../../helpers/fixed-clock.service';
 import { makeNotifications } from '../../helpers/mocks';
+import type { RequestsRepository } from '../../../src/requests/requests.repository';
+import type { NotificationsService } from '../../../src/notifications/notifications.service';
 
 const TODAY = '2024-01-15';
 const YESTERDAY = '2024-01-14';
 const TOMORROW = '2024-01-16';
 
-function makeRequest(externalId: string, startDate: string, employeeId = 'emp-1', managerId = 'mgr-1') {
-  return { id: 1, externalId, employeeId, managerId, startDate, status: RequestStatus.PENDING };
+function makeRequest(
+  externalId: string,
+  startDate: string,
+  employeeId = 'emp-1',
+  managerId = 'mgr-1',
+) {
+  return {
+    id: 1,
+    externalId,
+    employeeId,
+    managerId,
+    startDate,
+    status: RequestStatus.PENDING,
+  };
 }
 
 function makeRepo(overrides: Partial<Record<string, jest.Mock>> = {}) {
@@ -28,7 +42,11 @@ function makeService(
   clock.setTime(clockDate);
   const repo = makeRepo(repoOverrides);
   const notifications = makeNotifications();
-  const service = new SchedulerService(repo as any, notifications as any, clock);
+  const service = new SchedulerService(
+    repo as unknown as RequestsRepository,
+    notifications as unknown as NotificationsService,
+    clock,
+  );
   return { service, repo, notifications };
 }
 
@@ -46,7 +64,10 @@ describe('SchedulerService.runReminderJob', () => {
     });
     await service.runReminderJob();
     expect(notifications.notifyPendingRequests).toHaveBeenCalledTimes(1);
-    expect(notifications.notifyPendingRequests).toHaveBeenCalledWith('mgr-1', pending);
+    expect(notifications.notifyPendingRequests).toHaveBeenCalledWith(
+      'mgr-1',
+      pending,
+    );
   });
 
   it('does not call transitionStatus', async () => {
@@ -70,26 +91,44 @@ describe('SchedulerService.runCancellationJob', () => {
   });
 
   it('calls transitionStatus for each expired request', async () => {
-    const expired = [makeRequest('r-1', YESTERDAY), makeRequest('r-2', YESTERDAY, 'emp-2')];
+    const expired = [
+      makeRequest('r-1', YESTERDAY),
+      makeRequest('r-2', YESTERDAY, 'emp-2'),
+    ];
     const { service, repo } = makeService({
       findPendingByStartDateBefore: jest.fn().mockResolvedValue(expired),
     });
     await service.runCancellationJob();
     expect(repo.transitionStatus).toHaveBeenCalledTimes(2);
     expect(repo.transitionStatus).toHaveBeenCalledWith(
-      'r-1', RequestStatus.PENDING, RequestStatus.CANCELLED, 'SCHEDULER', 'SYSTEM',
+      'r-1',
+      RequestStatus.PENDING,
+      RequestStatus.CANCELLED,
+      'SCHEDULER',
+      'SYSTEM',
     );
   });
 
   it('notifies employee for each cancelled request', async () => {
-    const expired = [makeRequest('r-1', YESTERDAY, 'emp-1'), makeRequest('r-2', YESTERDAY, 'emp-2')];
+    const expired = [
+      makeRequest('r-1', YESTERDAY, 'emp-1'),
+      makeRequest('r-2', YESTERDAY, 'emp-2'),
+    ];
     const { service, notifications } = makeService({
       findPendingByStartDateBefore: jest.fn().mockResolvedValue(expired),
     });
     await service.runCancellationJob();
     expect(notifications.notifyEmployee).toHaveBeenCalledTimes(2);
-    expect(notifications.notifyEmployee).toHaveBeenCalledWith('emp-1', RequestStatus.CANCELLED, 'r-1');
-    expect(notifications.notifyEmployee).toHaveBeenCalledWith('emp-2', RequestStatus.CANCELLED, 'r-2');
+    expect(notifications.notifyEmployee).toHaveBeenCalledWith(
+      'emp-1',
+      RequestStatus.CANCELLED,
+      'r-1',
+    );
+    expect(notifications.notifyEmployee).toHaveBeenCalledWith(
+      'emp-2',
+      RequestStatus.CANCELLED,
+      'r-2',
+    );
   });
 
   it('does not cancel requests with startDate equal to today', async () => {

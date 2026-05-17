@@ -1,4 +1,5 @@
-import request = require('supertest');
+import type { Server } from 'http';
+import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
@@ -39,7 +40,7 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
     hours = 8,
   ): Promise<string> {
     await hcmMock.seed({ ...DEFAULT_KEY, employeeId }, 80);
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .post('/requests')
       .send({
         employeeId,
@@ -58,18 +59,18 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
   }
 
   it('returns 400 when neither managerId nor employeeId is provided', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .expect(400);
-    expect(res.body.code).toBe('VALIDATION_ERROR');
+    expect((res.body as { code: string }).code).toBe('VALIDATION_ERROR');
   });
 
   it('returns 400 when both managerId and employeeId are provided', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .query({ managerId: 'mgr-1', employeeId: 'emp-1' })
       .expect(400);
-    expect(res.body.code).toBe('VALIDATION_ERROR');
+    expect((res.body as { code: string }).code).toBe('VALIDATION_ERROR');
   });
 
   it('filters by managerId — only returns requests for that manager', async () => {
@@ -78,12 +79,17 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
     const idB = await submitAs(app, 'emp-2', 'mgr-1');
     const idC = await submitAs(app, 'emp-3', 'mgr-2');
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .query({ managerId: 'mgr-1' })
       .expect(200);
 
-    const body = res.body as { items: Array<{ externalId: string }>; total: number; limit: number; offset: number };
+    const body = res.body as {
+      items: Array<{ externalId: string }>;
+      total: number;
+      limit: number;
+      offset: number;
+    };
     const ids = body.items.map((i) => i.externalId);
     expect(ids).toContain(idA);
     expect(ids).toContain(idB);
@@ -93,17 +99,20 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
     expect(body.offset).toBeDefined();
   });
 
-  it('filters by employeeId — only returns that employee\'s requests', async () => {
+  it("filters by employeeId — only returns that employee's requests", async () => {
     await seedHcmConfig(dataSource);
     const idA = await submitAs(app, 'emp-1', 'mgr-1');
     await submitAs(app, 'emp-2', 'mgr-1');
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .query({ employeeId: 'emp-1' })
       .expect(200);
 
-    const body = res.body as { items: Array<{ externalId: string }>; total: number };
+    const body = res.body as {
+      items: Array<{ externalId: string }>;
+      total: number;
+    };
     const ids = body.items.map((i) => i.externalId);
     expect(ids).toContain(idA);
     expect(body.total).toBe(1);
@@ -113,14 +122,14 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
     await seedHcmConfig(dataSource);
     const pendingId = await submitAs(app, 'emp-1', 'mgr-1');
 
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as Server)
       .post(`/requests/${pendingId}/reject`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
 
     const anotherPendingId = await submitAs(app, 'emp-2', 'mgr-1');
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .query({ managerId: 'mgr-1', status: 'PENDING' })
       .expect(200);
@@ -134,7 +143,7 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
   it('response shape includes items, total, limit, offset', async () => {
     await seedHcmConfig(dataSource);
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests')
       .query({ managerId: 'mgr-99' })
       .expect(200);

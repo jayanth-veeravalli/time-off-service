@@ -21,7 +21,9 @@ export class SchedulerService {
     this.logger.log(`[reminder] starting — today=${today}`);
 
     const pending = await this.repo.findPendingByStartDateOnOrAfter(today);
-    this.logger.log(`[reminder] found ${pending.length} pending request(s) to remind`);
+    this.logger.log(
+      `[reminder] found ${pending.length} pending request(s) to remind`,
+    );
 
     const byManager = new Map<string, typeof pending>();
     for (const req of pending) {
@@ -41,7 +43,9 @@ export class SchedulerService {
     this.logger.log(`[cancellation] starting — today=${today}`);
 
     const expired = await this.repo.findPendingByStartDateBefore(today);
-    this.logger.log(`[cancellation] found ${expired.length} expired request(s)`);
+    this.logger.log(
+      `[cancellation] found ${expired.length} expired request(s)`,
+    );
 
     for (const request of expired) {
       await this.repo.transitionStatus(
@@ -51,7 +55,11 @@ export class SchedulerService {
         'SCHEDULER',
         ActorType.SYSTEM,
       );
-      this.notifications.notifyEmployee(request.employeeId, RequestStatus.CANCELLED, request.externalId);
+      this.notifications.notifyEmployee(
+        request.employeeId,
+        RequestStatus.CANCELLED,
+        request.externalId,
+      );
     }
 
     this.logger.log(`[cancellation] cancelled ${expired.length} request(s)`);

@@ -46,14 +46,18 @@ export async function buildE2EApp(): Promise<E2EApp> {
 
   const app = module.createNestApplication();
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
 
   await app.listen(0);
 
-  const server = app.getHttpServer();
-  const { port } = server.address() as { port: number };
+  const server = app.getHttpServer() as { address(): { port: number } };
+  const { port } = server.address();
   const baseUrl = `http://localhost:${port}`;
 
   const dataSource = module.get(DataSource);
@@ -88,25 +92,29 @@ export interface BalanceKey {
   year: number;
 }
 
+function hcmBaseUrl(): string {
+  return `http://localhost:${mockPort}`;
+}
+
 export const hcmMock = {
   url(): string {
-    return `http://localhost:${mockPort}`;
+    return hcmBaseUrl();
   },
 
   async seed(key: BalanceKey, balanceHours: number): Promise<void> {
-    await axios.post(`${this.url()}/mock/seed`, { key, balanceHours });
+    await axios.post(`${hcmBaseUrl()}/mock/seed`, { key, balanceHours });
   },
 
   async reset(): Promise<void> {
-    await axios.post(`${this.url()}/mock/reset`);
+    await axios.post(`${hcmBaseUrl()}/mock/reset`);
   },
 
   async configure(mode: MockMode, delayMs?: number): Promise<void> {
-    await axios.post(`${this.url()}/mock/configure`, { mode, delayMs });
+    await axios.post(`${hcmBaseUrl()}/mock/configure`, { mode, delayMs });
   },
 
   async getDebits(): Promise<Record<string, number>> {
-    const res = await axios.get(`${this.url()}/mock/debits`);
+    const res = await axios.get(`${hcmBaseUrl()}/mock/debits`);
     return res.data as Record<string, number>;
   },
 };

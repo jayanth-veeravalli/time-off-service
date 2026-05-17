@@ -17,7 +17,10 @@ export class CommentsService {
     private readonly clock: ClockService,
   ) {}
 
-  async addComment(externalId: string, dto: AddCommentDto): Promise<RequestCommentEntity> {
+  async addComment(
+    externalId: string,
+    dto: AddCommentDto,
+  ): Promise<RequestCommentEntity> {
     const request = await this.requestRepo.findOne({ where: { externalId } });
     if (!request) throw new RequestNotFoundException(externalId);
 

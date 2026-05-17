@@ -8,7 +8,7 @@ describe('LockService', () => {
   });
 
   it('executes a single task and returns its value', async () => {
-    const result = await service.withLock('emp-1', async () => 42);
+    const result = await service.withLock('emp-1', () => 42);
     expect(result).toBe(42);
   });
 
@@ -19,7 +19,7 @@ describe('LockService', () => {
       await new Promise((r) => setTimeout(r, 20));
       order.push(1);
     });
-    const t2 = service.withLock('emp-1', async () => {
+    const t2 = service.withLock('emp-1', () => {
       order.push(2);
     });
 
@@ -34,7 +34,7 @@ describe('LockService', () => {
       await new Promise((r) => setTimeout(r, 20));
       order.push(1);
     });
-    const t2 = service.withLock('emp-2', async () => {
+    const t2 = service.withLock('emp-2', () => {
       order.push(2);
     });
 
@@ -45,20 +45,20 @@ describe('LockService', () => {
 
   it('releases the lock even when the task throws', async () => {
     await expect(
-      service.withLock('emp-1', async () => {
+      service.withLock('emp-1', () => {
         throw new Error('task failed');
       }),
     ).rejects.toThrow('task failed');
 
     // Lock must be released — the next task should run immediately
-    const result = await service.withLock('emp-1', async () => 'ok');
+    const result = await service.withLock('emp-1', () => 'ok');
     expect(result).toBe('ok');
   });
 
   it('propagates the error from a failing task', async () => {
     class MyError extends Error {}
     await expect(
-      service.withLock('emp-1', async () => {
+      service.withLock('emp-1', () => {
         throw new MyError('specific error');
       }),
     ).rejects.toBeInstanceOf(MyError);

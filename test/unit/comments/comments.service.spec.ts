@@ -2,6 +2,9 @@ import { CommentsService } from '../../../src/comments/comments.service';
 import { RequestNotFoundException } from '../../../src/common/exceptions';
 import { AuthorType } from '../../../src/common/types';
 import { FixedClockService } from '../../helpers/fixed-clock.service';
+import type { Repository } from 'typeorm';
+import type { RequestCommentEntity } from '../../../src/comments/request-comment.entity';
+import type { TimeOffRequestEntity } from '../../../src/requests/time-off-request.entity';
 
 const FIXED_TIME = new Date('2024-01-15T12:00:00.000Z');
 
@@ -11,7 +14,7 @@ function makeRequest(overrides: object = {}) {
 
 function makeCommentRepo(saved: object = {}) {
   return {
-    create: jest.fn().mockImplementation((data) => data),
+    create: jest.fn().mockImplementation((data: unknown) => data),
     save: jest.fn().mockResolvedValue({ id: 10, ...saved }),
     find: jest.fn().mockResolvedValue([]),
   };
@@ -26,15 +29,21 @@ function makeService(request: object | null, savedComment: object = {}) {
   clock.setTime(FIXED_TIME);
   return {
     service: new CommentsService(
-      makeCommentRepo(savedComment) as any,
-      makeRequestRepo(request) as any,
+      makeCommentRepo(
+        savedComment,
+      ) as unknown as Repository<RequestCommentEntity>,
+      makeRequestRepo(request) as unknown as Repository<TimeOffRequestEntity>,
       clock,
     ),
     clock,
   };
 }
 
-const ADD_DTO = { authorId: 'emp-1', authorType: AuthorType.EMPLOYEE, body: 'Need this approved.' };
+const ADD_DTO = {
+  authorId: 'emp-1',
+  authorType: AuthorType.EMPLOYEE,
+  body: 'Need this approved.',
+};
 
 describe('CommentsService.addComment', () => {
   it('throws RequestNotFoundException when request does not exist', async () => {
@@ -49,8 +58,10 @@ describe('CommentsService.addComment', () => {
     const clock = new FixedClockService();
     clock.setTime(FIXED_TIME);
     const svc = new CommentsService(
-      commentRepo as any,
-      makeRequestRepo(makeRequest()) as any,
+      commentRepo as unknown as Repository<RequestCommentEntity>,
+      makeRequestRepo(
+        makeRequest(),
+      ) as unknown as Repository<TimeOffRequestEntity>,
       clock,
     );
     await svc.addComment('req-ext-1', ADD_DTO);
@@ -76,7 +87,9 @@ describe('CommentsService.addComment', () => {
 describe('CommentsService.getComments', () => {
   it('throws RequestNotFoundException when request does not exist', async () => {
     const { service } = makeService(null);
-    await expect(service.getComments('missing')).rejects.toBeInstanceOf(RequestNotFoundException);
+    await expect(service.getComments('missing')).rejects.toBeInstanceOf(
+      RequestNotFoundException,
+    );
   });
 
   it('returns comments ordered by createdAt ASC', async () => {
@@ -84,11 +97,16 @@ describe('CommentsService.getComments', () => {
       { id: 1, body: 'first' },
       { id: 2, body: 'second' },
     ];
-    const commentRepo = { ...makeCommentRepo(), find: jest.fn().mockResolvedValue(comments) };
+    const commentRepo = {
+      ...makeCommentRepo(),
+      find: jest.fn().mockResolvedValue(comments),
+    };
     const clock = new FixedClockService();
     const svc = new CommentsService(
-      commentRepo as any,
-      makeRequestRepo(makeRequest()) as any,
+      commentRepo as unknown as Repository<RequestCommentEntity>,
+      makeRequestRepo(
+        makeRequest(),
+      ) as unknown as Repository<TimeOffRequestEntity>,
       clock,
     );
     const result = await svc.getComments('req-ext-1');
@@ -102,8 +120,10 @@ describe('CommentsService.getComments', () => {
     const commentRepo = makeCommentRepo();
     const clock = new FixedClockService();
     const svc = new CommentsService(
-      commentRepo as any,
-      makeRequestRepo(makeRequest({ id: 42 })) as any,
+      commentRepo as unknown as Repository<RequestCommentEntity>,
+      makeRequestRepo(
+        makeRequest({ id: 42 }),
+      ) as unknown as Repository<TimeOffRequestEntity>,
       clock,
     );
     await svc.getComments('req-ext-1');

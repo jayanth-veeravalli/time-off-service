@@ -1,6 +1,63 @@
+<a id="top"></a>
+
 # Time-Off Microservice — Technical Requirements Document
 
 > Related: [Alternatives Considered](./ALTERNATIVES.md) · [Test Plan](./TEST-PLAN.md)
+
+---
+
+## Contents
+
+1. [Overview](#1-overview)
+2. [Goals](#2-goals)
+3. [Challenges](#3-challenges)
+   - [C-1: Concurrent approvals racing on the same balance](#c-1-concurrent-approvals-racing-on-the-same-balance)
+   - [C-2: External balance mutations between submit and approve](#c-2-external-balance-mutations-between-submit-and-approve)
+   - [C-3: Partial failure on approve — DB and HCM out of sync](#c-3-partial-failure-on-approve--db-and-hcm-out-of-sync)
+   - [C-4: Auto-cancellation racing with approval](#c-4-auto-cancellation-racing-with-approval)
+   - [C-5: Multi-employer HCM adapter routing](#c-5-multi-employer-hcm-adapter-routing)
+   - [C-6: HCM error signaling is not guaranteed](#c-6-hcm-error-signaling-is-not-guaranteed)
+4. [Functional Requirements](#4-functional-requirements)
+5. [Non-Functional Requirements](#5-non-functional-requirements)
+6. [Proposed Solution](#6-proposed-solution)
+7. [Why This Approach](#7-why-this-approach)
+8. [Architecture](#8-architecture)
+   - [Module Layout](#module-layout)
+   - [Component Responsibilities](#component-responsibilities)
+   - [Cross-Cutting Concerns](#cross-cutting-concerns)
+   - [HCM Adapter Interface](#hcm-adapter-interface)
+   - [System Diagram](#system-diagram)
+9. [Database Schema](#9-database-schema)
+   - [Enum Values](#enum-values)
+   - [Access Patterns and Indexes](#access-patterns-and-indexes)
+   - [Transactions and Concurrency](#transactions-and-concurrency)
+   - [Migrations](#migrations)
+   - [Data Lifecycle](#data-lifecycle)
+10. [APIs](#10-apis)
+    - [GET /requests](#get-requests--list-and-filter-requests)
+    - [POST /requests](#post-requests--submit-a-request)
+    - [GET /requests/:externalId](#get-requestsexternalid--fetch-a-request)
+    - [POST /requests/:externalId/approve](#post-requestsexternalidapprove--approve-a-request)
+    - [POST /requests/:externalId/reject](#post-requestsexternalidreject--reject-a-request)
+    - [POST /requests/:externalId/withdraw](#post-requestsexternalidwithdraw--withdraw-a-request)
+    - [PATCH /requests/:externalId/manager](#patch-requestsexternalidmanager--re-assign-manager)
+    - [POST /requests/:externalId/comments](#post-requestsexternalidcomments--add-a-comment)
+    - [GET /requests/:externalId/comments](#get-requestsexternalidcomments--fetch-comments)
+    - [GET /employees/:employeeId/balance](#get-employeesemployeeidbalance--get-current-balance)
+    - [HCM Adapter (Internal Contract)](#hcm-adapter-internal-contract)
+11. [Workflows](#11-workflows)
+    - [State Machine](#state-machine)
+    - [Submit Request](#submit-request)
+    - [Approve Request](#approve-request)
+    - [Reject Request](#reject-request)
+    - [Withdraw Request (PENDING)](#withdraw-request-pending)
+    - [Withdraw Request (APPROVED)](#withdraw-request-approved)
+    - [Daily Scheduler — 8am Reminder Job](#daily-scheduler--8am-reminder-job)
+    - [Daily Scheduler — 11:59pm Cancellation Job](#daily-scheduler--1159pm-cancellation-job)
+12. [Testing](#12-testing)
+13. [Folder Structure](#13-folder-structure)
+14. [Dependencies](#14-dependencies)
+15. [Acceptance Criteria](#15-acceptance-criteria)
 
 ---
 
@@ -9,6 +66,8 @@
 The Time-Off Microservice manages the full lifecycle of employee time-off requests for ReadyOn. It is the system of record for request state, but deliberately not the system of record for leave balances — that authority remains with each employer's Human Capital Management (HCM) system. The core technical tension is maintaining balance integrity across two independently mutable systems: ReadyOn records requests, HCM owns balances, and neither fully controls the other.
 
 The service is multi-employer: each employer may use a different HCM system (Workday, SAP, others). It is an internal service — all authentication is handled at the internal gateway layer via client-id and api-key headers. No user-level auth logic exists within this service.
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -22,6 +81,8 @@ The service is multi-employer: each employer may use a different HCM system (Wor
 - Notify managers daily of pending requests and auto-cancel requests that were not actioned before their start date
 - Provide comment threads on requests for both employees and managers
 - Return structured, actionable error responses for all failure modes
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -85,6 +146,8 @@ The brief explicitly states that HCM may not always return errors for insufficie
 
 **How we handle it:** ReadyOn enforces its own balance check before every HCM debit call: it reads the live HCM balance, sums existing PENDING hours for the same dimensions from the local DB, and verifies the new request fits before making the debit call.
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 4. Functional Requirements
@@ -103,6 +166,8 @@ The brief explicitly states that HCM may not always return errors for insufficie
 - **FR-14:** All state transitions are recorded in an audit log (`request_state_transitions`)
 - **FR-15:** The employee is notified via `NotificationService` on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 5. Non-Functional Requirements
@@ -114,6 +179,8 @@ The brief explicitly states that HCM may not always return errors for insufficie
 - **Scalability note:** The in-process per-employee lock is a single-instance constraint. SQLite does not support row-level locking. Horizontal scaling requires an RDBMS with row-level locking (e.g., PostgreSQL), replacing the in-process lock with `SELECT ... FOR UPDATE` per employee.
 - **Security:** This service is internal. All authentication is handled at the gateway layer via client-id + api-key. No auth logic exists within the service. No credentials are stored except HCM `baseUrl` values in `employer_hcm_config`.
 - **Scheduler reliability:** The daily job is self-correcting — if it misses a run, cancellation catches up on the next execution because the condition is date-based, not run-time-based.
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -127,6 +194,8 @@ When an employee submits a request, the service acquires a per-employee in-proce
 
 Two daily scheduler jobs run independently via `@nestjs/schedule`. The 8am reminder job notifies managers of all PENDING requests where `startDate >= today`, giving them the full day to act. The 11:59pm cancellation job scans for PENDING requests where `today > startDate`, marks them `CANCELLED` (recording `actorId='SCHEDULER'`, `actorType=SYSTEM` in the transition row), and notifies each affected employee. The time separation is intentional — managers receive the morning reminder before any cancellations fire. The `NotificationService` also fires an employee notification on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`. The `NotificationService` interface is designed for future SNS integration — v1 logs the event. Comments are append-only records attached to a request, writable by both employees and managers, always optional, and returned as part of the request detail response.
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 7. Why This Approach
@@ -137,6 +206,8 @@ Two daily scheduler jobs run independently via `@nestjs/schedule`. The 8am remin
 | Multi-employer routing | Runtime Adapter Factory | Multi-employer is a core requirement; static config cannot support employers with different HCM systems. See [Decision 2](./ALTERNATIVES.md#decision-2-hcm-integration-pattern-multi-employer-adapter). |
 | Request expiry | Start-date-based auto-cancel | The meaningful cancellation trigger is the leave window opening with no decision, not an arbitrary duration since submission. See [Decision 3](./ALTERNATIVES.md#decision-3-request-expiry-and-auto-cancellation). |
 | Async queue | Not used in v1 | Adds queue infrastructure complexity not justified by 5 9's HCM availability and no rate limiting. Documented as fallback in [Decision 1-B](./ALTERNATIVES.md#approach-1-b-hcm-primary-with-async-queue-variant). |
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -240,6 +311,8 @@ flowchart TD
     SCH --> RR
     SCH --> NS
 ```
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -347,6 +420,8 @@ TypeORM migrations via `typeorm migration:generate` and `typeorm migration:run`.
 ### Data Lifecycle
 
 All records are retained indefinitely in v1. No archival or deletion policy is defined.
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -660,6 +735,8 @@ All adapters implement `IHcmAdapter`. Timeout: 5 seconds. No retries. Errors map
 
 The `requestExternalId` is passed on every `debitBalance` and `reverseDebit` call as an idempotency reference. Each adapter uses it if the underlying HCM supports idempotency keys; otherwise it is ignored.
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 11. Workflows
@@ -935,6 +1012,8 @@ flowchart TD
     C -- No --> G
 ```
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 12. Testing
@@ -942,6 +1021,8 @@ flowchart TD
 The primary testing challenge in this service is the dependency on an external HCM system that is not under our control, combined with time-sensitive scheduler behavior and concurrency scenarios that require precise sequencing. A real HTTP mock HCM server (not jest mocks) is required to test the full adapter call path, error propagation, and mid-test balance changes that simulate external mutations. The `ClockService` and `UuidService` injection points exist specifically to make scheduler timing and UUID generation deterministic in tests.
 
 See [`docs/TEST-PLAN.md`](./TEST-PLAN.md) for the full testing strategy.
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -1004,6 +1085,8 @@ test/
     └── hcm-mock-server/
 ```
 
+<div align="right"><a href="#top">↑ top</a></div>
+
 ---
 
 ## 14. Dependencies
@@ -1024,6 +1107,8 @@ test/
 | `supertest` | HTTP assertions for integration and E2E tests |
 | `@nestjs/testing` | NestJS test module |
 | `@types/better-sqlite3`, `@types/supertest` | Type definitions |
+
+<div align="right"><a href="#top">↑ top</a></div>
 
 ---
 
@@ -1052,3 +1137,5 @@ test/
 | AC-21 | Approve and reject by an actorId that does not match managerId return 403 UNAUTHORIZED_ACTOR | managerId enforcement |
 | AC-22 | GET /requests with status=PENDING returns only PENDING requests; with employeeId returns only that employee's requests | GET /requests |
 | AC-23 | PATCH /requests/:externalId/manager succeeds on a PENDING request; returns 409 on APPROVED, REJECTED, WITHDRAWN, or CANCELLED | PATCH /manager |
+
+<div align="right"><a href="#top">↑ top</a></div>

@@ -1,4 +1,5 @@
-import request = require('supertest');
+import type { Server } from 'http';
+import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
@@ -41,47 +42,52 @@ describe('GET /employees/:employeeId/balance', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 168);
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/employees/${DEFAULT_KEY.employeeId}/balance`)
       .query(BALANCE_QUERY)
       .expect(200);
 
-    expect(res.body.balanceHours).toBe(168);
-    expect(res.body.employeeId).toBe(DEFAULT_KEY.employeeId);
-    expect(res.body.employerId).toBe(DEFAULT_KEY.employerId);
+    const body = res.body as {
+      balanceHours: number;
+      employeeId: string;
+      employerId: string;
+    };
+    expect(body.balanceHours).toBe(168);
+    expect(body.employeeId).toBe(DEFAULT_KEY.employeeId);
+    expect(body.employerId).toBe(DEFAULT_KEY.employerId);
   });
 
   it('no HCM config for employerId returns 422 HCM_CONFIG_NOT_FOUND', async () => {
     // intentionally skip seedHcmConfig
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/employees/${DEFAULT_KEY.employeeId}/balance`)
       .query(BALANCE_QUERY)
       .expect(422);
 
-    expect(res.body.code).toBe('HCM_CONFIG_NOT_FOUND');
+    expect((res.body as { code: string }).code).toBe('HCM_CONFIG_NOT_FOUND');
   });
 
   it('HCM returns 503 → 503 HCM_UNAVAILABLE', async () => {
     await seedHcmConfig(dataSource);
     await hcmMock.configure('SERVER_ERROR');
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/employees/${DEFAULT_KEY.employeeId}/balance`)
       .query(BALANCE_QUERY)
       .expect(503);
 
-    expect(res.body.code).toBe('HCM_UNAVAILABLE');
+    expect((res.body as { code: string }).code).toBe('HCM_UNAVAILABLE');
   });
 
   it('HCM returns 4xx → 422 HCM_ERROR', async () => {
     await seedHcmConfig(dataSource);
     await hcmMock.configure('INVALID_DIMENSIONS');
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/employees/${DEFAULT_KEY.employeeId}/balance`)
       .query(BALANCE_QUERY)
       .expect(422);
 
-    expect(res.body.code).toBe('HCM_ERROR');
+    expect((res.body as { code: string }).code).toBe('HCM_ERROR');
   });
 });

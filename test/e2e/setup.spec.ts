@@ -37,18 +37,21 @@ describe('e2e setup smoke test', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
-    const res = await axios.post(`${e2e.baseUrl}/requests`, {
-      employeeId: DEFAULT_KEY.employeeId,
-      employerId: DEFAULT_KEY.employerId,
-      locationId: DEFAULT_KEY.locationId,
-      leaveType: DEFAULT_KEY.leaveType,
-      year: DEFAULT_KEY.year,
-      startDate: '2024-03-01',
-      endDate: '2024-03-05',
-      requestedHours: 40,
-      submittedById: 'emp-1',
-      managerId: 'mgr-1',
-    });
+    const res = await axios.post<{ status: string; externalId: string }>(
+      `${e2e.baseUrl}/requests`,
+      {
+        employeeId: DEFAULT_KEY.employeeId,
+        employerId: DEFAULT_KEY.employerId,
+        locationId: DEFAULT_KEY.locationId,
+        leaveType: DEFAULT_KEY.leaveType,
+        year: DEFAULT_KEY.year,
+        startDate: '2024-03-01',
+        endDate: '2024-03-05',
+        requestedHours: 40,
+        submittedById: 'emp-1',
+        managerId: 'mgr-1',
+      },
+    );
 
     expect(res.status).toBe(201);
     expect(res.data.status).toBe('PENDING');

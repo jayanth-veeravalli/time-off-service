@@ -1,4 +1,5 @@
-import request = require('supertest');
+import type { Server } from 'http';
+import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
@@ -14,6 +15,20 @@ import {
 import { makeSubmitBody } from '../helpers/factories';
 
 const SUBMIT_BODY = makeSubmitBody({ ...DEFAULT_KEY });
+
+interface Transition {
+  toState: string;
+  fromState: string;
+  actorId: string;
+}
+
+interface GetRequestBody {
+  externalId: string;
+  status: string;
+  employeeId: string;
+  requestedHours: number;
+  transitions: Transition[];
+}
 
 describe('GET /requests/:externalId', () => {
   let app: INestApplication;
@@ -39,61 +54,63 @@ describe('GET /requests/:externalId', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
-    const submitRes = await request(app.getHttpServer())
+    const submitRes = await request(app.getHttpServer() as Server)
       .post('/requests')
       .send(SUBMIT_BODY)
       .expect(201);
 
     const { externalId } = submitRes.body as { externalId: string };
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/requests/${externalId}`)
       .expect(200);
 
-    expect(res.body.externalId).toBe(externalId);
-    expect(res.body.status).toBe('PENDING');
-    expect(res.body.employeeId).toBe(SUBMIT_BODY.employeeId);
-    expect(res.body.requestedHours).toBe(40);
-    expect(res.body.transitions).toHaveLength(1);
-    expect(res.body.transitions[0].toState).toBe('PENDING');
-    expect(res.body.transitions[0].fromState).toBeNull();
+    const body = res.body as GetRequestBody;
+    expect(body.externalId).toBe(externalId);
+    expect(body.status).toBe('PENDING');
+    expect(body.employeeId).toBe(SUBMIT_BODY.employeeId);
+    expect(body.requestedHours).toBe(40);
+    expect(body.transitions).toHaveLength(1);
+    expect(body.transitions[0].toState).toBe('PENDING');
+    expect(body.transitions[0].fromState).toBeNull();
   });
 
   it('nonexistent externalId returns 404 NOT_FOUND', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get('/requests/does-not-exist')
       .expect(404);
 
-    expect(res.body.code).toBe('NOT_FOUND');
+    expect((res.body as { code: string }).code).toBe('NOT_FOUND');
   });
 
   it('after approve, transitions array contains PENDING→APPROVED entry', async () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
-    const submitRes = await request(app.getHttpServer())
+    const submitRes = await request(app.getHttpServer() as Server)
       .post('/requests')
       .send(SUBMIT_BODY)
       .expect(201);
 
     const { externalId } = submitRes.body as { externalId: string };
 
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/approve`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
 
-    const res = await request(app.getHttpServer())
+    const res = await request(app.getHttpServer() as Server)
       .get(`/requests/${externalId}`)
       .expect(200);
 
-    expect(res.body.status).toBe('APPROVED');
-    expect(res.body.transitions).toHaveLength(2);
+    const body = res.body as GetRequestBody;
+    expect(body.status).toBe('APPROVED');
+    expect(body.transitions).toHaveLength(2);
 
-    const approveTransition = res.body.transitions.find(
-      (t: { toState: string }) => t.toState === 'APPROVED',
+    const approveTransition = body.transitions.find(
+      (t) => t.toState === 'APPROVED',
     );
-    expect(approveTransition.fromState).toBe('PENDING');
-    expect(approveTransition.actorId).toBe('mgr-1');
+    expect(approveTransition?.fromState).toBe('PENDING');
+    expect(approveTransition?.actorId).toBe('mgr-1');
   });
 });

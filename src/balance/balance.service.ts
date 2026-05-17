@@ -30,6 +30,13 @@ export class BalanceService {
       leaveType,
       year,
     });
-    return { employeeId, employerId, locationId, leaveType, year, balanceHours };
+    return {
+      employeeId,
+      employerId,
+      locationId,
+      leaveType,
+      year,
+      balanceHours,
+    };
   }
 }

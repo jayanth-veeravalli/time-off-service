@@ -32,8 +32,9 @@ describe('SubmitRequestDto validation', () => {
   });
 
   it('rejects when employeeId is missing', async () => {
-    const { employeeId: _, ...rest } = valid();
-    const errs = await errors(rest);
+    const body = valid();
+    delete body['employeeId'];
+    const errs = await errors(body);
     expect(errs.length).toBeGreaterThan(0);
   });
 
@@ -53,12 +54,20 @@ describe('SubmitRequestDto validation', () => {
   });
 
   it('rejects endDate before startDate', async () => {
-    const errs = await errors({ ...valid(), startDate: '2024-03-10', endDate: '2024-03-05' });
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-10',
+      endDate: '2024-03-05',
+    });
     expect(errs.length).toBeGreaterThan(0);
   });
 
   it('accepts endDate equal to startDate', async () => {
-    const errs = await errors({ ...valid(), startDate: '2024-03-05', endDate: '2024-03-05' });
+    const errs = await errors({
+      ...valid(),
+      startDate: '2024-03-05',
+      endDate: '2024-03-05',
+    });
     expect(errs).toHaveLength(0);
   });
 
@@ -68,8 +77,9 @@ describe('SubmitRequestDto validation', () => {
   });
 
   it('rejects when managerId is missing', async () => {
-    const { managerId: _, ...rest } = valid();
-    const errs = await errors(rest);
+    const body = valid();
+    delete body['managerId'];
+    const errs = await errors(body);
     expect(errs.length).toBeGreaterThan(0);
   });
 

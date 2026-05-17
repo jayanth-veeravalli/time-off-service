@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { BalanceKey } from '../../common/types';
-import { HcmDomainException, HcmUnavailableException } from '../../common/exceptions';
+import {
+  HcmDomainException,
+  HcmUnavailableException,
+} from '../../common/exceptions';
 import { IHcmAdapter } from '../hcm-adapter.interface';
 
 const TIMEOUT_MS = 5000;
@@ -24,7 +27,9 @@ export class SapAdapter implements IHcmAdapter {
     params: BalanceKey & { hours: number; requestExternalId: string },
   ): Promise<void> {
     try {
-      await axios.post(`${this.baseUrl}/api/leave/debit`, params, { timeout: TIMEOUT_MS });
+      await axios.post(`${this.baseUrl}/api/leave/debit`, params, {
+        timeout: TIMEOUT_MS,
+      });
     } catch (err) {
       throw mapAxiosError(err);
     }
@@ -34,18 +39,23 @@ export class SapAdapter implements IHcmAdapter {
     params: BalanceKey & { hours: number; requestExternalId: string },
   ): Promise<void> {
     try {
-      await axios.post(`${this.baseUrl}/api/leave/reverse`, params, { timeout: TIMEOUT_MS });
+      await axios.post(`${this.baseUrl}/api/leave/reverse`, params, {
+        timeout: TIMEOUT_MS,
+      });
     } catch (err) {
       throw mapAxiosError(err);
     }
   }
 }
 
-function mapAxiosError(err: unknown): HcmUnavailableException | HcmDomainException {
+function mapAxiosError(
+  err: unknown,
+): HcmUnavailableException | HcmDomainException {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
     if (status && status >= 400 && status < 500) {
-      return new HcmDomainException(err.response?.data?.message ?? 'HCM domain error');
+      const data = err.response?.data as { message?: string } | undefined;
+      return new HcmDomainException(data?.message ?? 'HCM domain error');
     }
   }
   return new HcmUnavailableException();

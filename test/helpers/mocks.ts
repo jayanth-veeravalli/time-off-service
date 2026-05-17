@@ -3,7 +3,11 @@ export function makeRepo(overrides: Partial<Record<string, jest.Mock>> = {}) {
     findByExternalId: jest.fn(),
     findOverlapping: jest.fn().mockResolvedValue([]),
     sumPendingHours: jest.fn().mockResolvedValue(0),
-    insertRequest: jest.fn().mockImplementation((data: unknown) => Promise.resolve({ id: 1, ...data as object })),
+    insertRequest: jest
+      .fn()
+      .mockImplementation((data: unknown) =>
+        Promise.resolve({ id: 1, ...(data as object) }),
+      ),
     transitionStatus: jest.fn().mockResolvedValue(true),
     findByFilter: jest.fn().mockResolvedValue([]),
     updateManagerId: jest.fn().mockResolvedValue(true),
@@ -34,7 +38,9 @@ export function makeNotifications() {
 
 export function makeLock() {
   return {
-    withLock: jest.fn().mockImplementation((_key: string, fn: () => Promise<unknown>) => fn()),
+    withLock: jest
+      .fn()
+      .mockImplementation((_key: string, fn: () => Promise<unknown>) => fn()),
   };
 }
 

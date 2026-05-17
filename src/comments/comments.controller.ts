@@ -19,7 +19,8 @@ export class CommentsController {
   @HttpCode(HttpStatus.CREATED)
   addComment(
     @Param('externalId') externalId: string,
-    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: AddCommentDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: AddCommentDto,
   ) {
     return this.service.addComment(externalId, dto);
   }

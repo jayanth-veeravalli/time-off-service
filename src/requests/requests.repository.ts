@@ -69,7 +69,9 @@ export class RequestsRepository {
     return parseInt(result?.total ?? '0', 10);
   }
 
-  insertRequest(data: Omit<TimeOffRequestEntity, 'id' | 'createdAt' | 'updatedAt'>): Promise<TimeOffRequestEntity> {
+  insertRequest(
+    data: Omit<TimeOffRequestEntity, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<TimeOffRequestEntity> {
     const entity = this.requestRepo.create(data);
     return this.requestRepo.save(entity);
   }
@@ -96,7 +98,9 @@ export class RequestsRepository {
         }
       }
 
-      const request = await manager.findOne(TimeOffRequestEntity, { where: { externalId } });
+      const request = await manager.findOne(TimeOffRequestEntity, {
+        where: { externalId },
+      });
       if (!request) return false;
 
       const transition = manager.create(RequestStateTransitionEntity, {
@@ -113,9 +117,14 @@ export class RequestsRepository {
     });
   }
 
-  async updateManagerId(externalId: string, managerId: string): Promise<TimeOffRequestEntity> {
+  async updateManagerId(
+    externalId: string,
+    managerId: string,
+  ): Promise<TimeOffRequestEntity> {
     await this.requestRepo.update({ externalId }, { managerId });
-    return this.requestRepo.findOne({ where: { externalId } }) as Promise<TimeOffRequestEntity>;
+    return this.requestRepo.findOne({
+      where: { externalId },
+    }) as Promise<TimeOffRequestEntity>;
   }
 
   findPendingByStartDateBefore(date: string): Promise<TimeOffRequestEntity[]> {
@@ -126,7 +135,9 @@ export class RequestsRepository {
       .getMany();
   }
 
-  findPendingByStartDateOnOrAfter(date: string): Promise<TimeOffRequestEntity[]> {
+  findPendingByStartDateOnOrAfter(
+    date: string,
+  ): Promise<TimeOffRequestEntity[]> {
     return this.requestRepo
       .createQueryBuilder('r')
       .where('r.status = :status', { status: RequestStatus.PENDING })
@@ -142,15 +153,21 @@ export class RequestsRepository {
     offset: number;
   }): Promise<{ items: TimeOffRequestEntity[]; total: number }> {
     const qb = this.requestRepo.createQueryBuilder('r');
-    if (opts.managerId) qb.andWhere('r.managerId = :managerId', { managerId: opts.managerId });
-    if (opts.employeeId) qb.andWhere('r.employeeId = :employeeId', { employeeId: opts.employeeId });
+    if (opts.managerId)
+      qb.andWhere('r.managerId = :managerId', { managerId: opts.managerId });
+    if (opts.employeeId)
+      qb.andWhere('r.employeeId = :employeeId', {
+        employeeId: opts.employeeId,
+      });
     if (opts.status) qb.andWhere('r.status = :status', { status: opts.status });
     qb.orderBy('r.createdAt', 'DESC').skip(opts.offset).take(opts.limit);
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
   }
 
-  findTransitionsByRequestId(requestId: number): Promise<RequestStateTransitionEntity[]> {
+  findTransitionsByRequestId(
+    requestId: number,
+  ): Promise<RequestStateTransitionEntity[]> {
     return this.transitionRepo.find({
       where: { requestId },
       order: { createdAt: 'ASC' },

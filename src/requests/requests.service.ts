@@ -67,7 +67,6 @@ export class RequestsService {
         throw new InsufficientBalanceException();
       }
 
-      const now = this.clock.now();
       const request = await this.repo.insertRequest({
         externalId: this.uuid.generate(),
         employeeId: dto.employeeId,
@@ -95,7 +94,10 @@ export class RequestsService {
     });
   }
 
-  async approve(externalId: string, actorId: string): Promise<TimeOffRequestEntity> {
+  async approve(
+    externalId: string,
+    actorId: string,
+  ): Promise<TimeOffRequestEntity> {
     const request = await this.repo.findByExternalId(externalId);
     if (!request) throw new RequestNotFoundException(externalId);
 
@@ -105,7 +107,10 @@ export class RequestsService {
       return request;
     }
     if (request.status !== RequestStatus.PENDING) {
-      throw new InvalidTransitionException(request.status, RequestStatus.APPROVED);
+      throw new InvalidTransitionException(
+        request.status,
+        RequestStatus.APPROVED,
+      );
     }
 
     return this.lock.withLock(request.employeeId, async () => {
@@ -116,7 +121,10 @@ export class RequestsService {
         return fresh;
       }
       if (fresh.status !== RequestStatus.PENDING) {
-        throw new InvalidTransitionException(fresh.status, RequestStatus.APPROVED);
+        throw new InvalidTransitionException(
+          fresh.status,
+          RequestStatus.APPROVED,
+        );
       }
 
       const adapter = await this.hcmFactory.getAdapter(fresh.employerId);
@@ -159,13 +167,21 @@ export class RequestsService {
         ActorType.MANAGER,
       );
 
-      this.notifications.notifyEmployee(fresh.employeeId, RequestStatus.APPROVED, externalId);
+      this.notifications.notifyEmployee(
+        fresh.employeeId,
+        RequestStatus.APPROVED,
+        externalId,
+      );
 
       return (await this.repo.findByExternalId(externalId))!;
     });
   }
 
-  async reject(externalId: string, actorId: string, comment?: string): Promise<TimeOffRequestEntity> {
+  async reject(
+    externalId: string,
+    actorId: string,
+    comment?: string,
+  ): Promise<TimeOffRequestEntity> {
     const request = await this.repo.findByExternalId(externalId);
     if (!request) throw new RequestNotFoundException(externalId);
 
@@ -175,7 +191,10 @@ export class RequestsService {
       return request;
     }
     if (request.status !== RequestStatus.PENDING) {
-      throw new InvalidTransitionException(request.status, RequestStatus.REJECTED);
+      throw new InvalidTransitionException(
+        request.status,
+        RequestStatus.REJECTED,
+      );
     }
 
     await this.repo.transitionStatus(
@@ -194,12 +213,19 @@ export class RequestsService {
       });
     }
 
-    this.notifications.notifyEmployee(request.employeeId, RequestStatus.REJECTED, externalId);
+    this.notifications.notifyEmployee(
+      request.employeeId,
+      RequestStatus.REJECTED,
+      externalId,
+    );
 
     return (await this.repo.findByExternalId(externalId))!;
   }
 
-  async withdraw(externalId: string, actorId: string): Promise<TimeOffRequestEntity> {
+  async withdraw(
+    externalId: string,
+    actorId: string,
+  ): Promise<TimeOffRequestEntity> {
     const request = await this.repo.findByExternalId(externalId);
     if (!request) throw new RequestNotFoundException(externalId);
 
@@ -215,7 +241,11 @@ export class RequestsService {
         actorId,
         ActorType.EMPLOYEE,
       );
-      this.notifications.notifyEmployee(request.employeeId, RequestStatus.WITHDRAWN, externalId);
+      this.notifications.notifyEmployee(
+        request.employeeId,
+        RequestStatus.WITHDRAWN,
+        externalId,
+      );
       return (await this.repo.findByExternalId(externalId))!;
     }
 
@@ -228,7 +258,10 @@ export class RequestsService {
           return fresh;
         }
         if (fresh.status !== RequestStatus.APPROVED) {
-          throw new InvalidTransitionException(fresh.status, RequestStatus.WITHDRAWN);
+          throw new InvalidTransitionException(
+            fresh.status,
+            RequestStatus.WITHDRAWN,
+          );
         }
 
         const adapter = await this.hcmFactory.getAdapter(fresh.employerId);
@@ -250,22 +283,38 @@ export class RequestsService {
           ActorType.EMPLOYEE,
         );
 
-        this.notifications.notifyEmployee(fresh.employeeId, RequestStatus.WITHDRAWN, externalId);
+        this.notifications.notifyEmployee(
+          fresh.employeeId,
+          RequestStatus.WITHDRAWN,
+          externalId,
+        );
         return (await this.repo.findByExternalId(externalId))!;
       });
     }
 
-    throw new InvalidTransitionException(request.status, RequestStatus.WITHDRAWN);
+    throw new InvalidTransitionException(
+      request.status,
+      RequestStatus.WITHDRAWN,
+    );
   }
 
-  async listRequests(
-    dto: ListRequestsDto,
-  ): Promise<{ items: TimeOffRequestEntity[]; total: number; limit: number; offset: number }> {
+  async listRequests(dto: ListRequestsDto): Promise<{
+    items: TimeOffRequestEntity[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
     if (!dto.managerId && !dto.employeeId) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Either managerId or employeeId is required' });
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Either managerId or employeeId is required',
+      });
     }
     if (dto.managerId && dto.employeeId) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Provide either managerId or employeeId, not both' });
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Provide either managerId or employeeId, not both',
+      });
     }
     const limit = dto.limit ?? 20;
     const offset = dto.offset ?? 0;
@@ -279,7 +328,10 @@ export class RequestsService {
     return { items, total, limit, offset };
   }
 
-  async reassignManager(externalId: string, managerId: string): Promise<TimeOffRequestEntity> {
+  async reassignManager(
+    externalId: string,
+    managerId: string,
+  ): Promise<TimeOffRequestEntity> {
     const request = await this.repo.findByExternalId(externalId);
     if (!request) throw new RequestNotFoundException(externalId);
     if (request.status !== RequestStatus.PENDING) {
@@ -290,7 +342,9 @@ export class RequestsService {
 
   async getRequest(
     externalId: string,
-  ): Promise<TimeOffRequestEntity & { transitions: RequestStateTransitionEntity[] }> {
+  ): Promise<
+    TimeOffRequestEntity & { transitions: RequestStateTransitionEntity[] }
+  > {
     const request = await this.repo.findByExternalId(externalId);
     if (!request) throw new RequestNotFoundException(externalId);
 

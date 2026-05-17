@@ -10,7 +10,14 @@ import { LeaveType } from '../common/types';
 import { RequestStatus } from '../common/types';
 
 @Entity('time_off_requests')
-@Index(['employeeId', 'employerId', 'locationId', 'leaveType', 'year', 'status'])
+@Index([
+  'employeeId',
+  'employerId',
+  'locationId',
+  'leaveType',
+  'year',
+  'status',
+])
 @Index(['status', 'startDate'])
 export class TimeOffRequestEntity {
   @PrimaryGeneratedColumn()

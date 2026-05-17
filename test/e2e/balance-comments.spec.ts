@@ -37,14 +37,17 @@ describe('e2e: balance and comments endpoints', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 120);
 
-    const res = await axios.get(`${e2e.baseUrl}/employees/${DEFAULT_KEY.employeeId}/balance`, {
-      params: {
-        employerId: DEFAULT_KEY.employerId,
-        locationId: DEFAULT_KEY.locationId,
-        leaveType: DEFAULT_KEY.leaveType,
-        year: String(DEFAULT_KEY.year),
+    const res = await axios.get<{ balanceHours: number }>(
+      `${e2e.baseUrl}/employees/${DEFAULT_KEY.employeeId}/balance`,
+      {
+        params: {
+          employerId: DEFAULT_KEY.employerId,
+          locationId: DEFAULT_KEY.locationId,
+          leaveType: DEFAULT_KEY.leaveType,
+          year: String(DEFAULT_KEY.year),
+        },
       },
-    });
+    );
 
     expect(res.status).toBe(200);
     expect(res.data.balanceHours).toBe(120);
@@ -75,7 +78,9 @@ describe('e2e: balance and comments endpoints', () => {
       body: 'Please expedite review',
     });
 
-    const commentsRes = await axios.get(`${e2e.baseUrl}/requests/${externalId}/comments`);
+    const commentsRes = await axios.get<
+      Array<{ body: string; authorType: string }>
+    >(`${e2e.baseUrl}/requests/${externalId}/comments`);
     expect(commentsRes.data).toHaveLength(1);
     expect(commentsRes.data[0].body).toBe('Please expedite review');
     expect(commentsRes.data[0].authorType).toBe('EMPLOYEE');

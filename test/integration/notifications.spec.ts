@@ -1,4 +1,5 @@
-import request = require('supertest');
+import type { Server } from 'http';
+import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TestingModule } from '@nestjs/testing';
@@ -27,8 +28,12 @@ const BASE_SUBMIT = {
   managerId: 'mgr-1',
 };
 
-async function submitRequest(app: INestApplication, startDate: string, endDate: string): Promise<string> {
-  const res = await request(app.getHttpServer())
+async function submitRequest(
+  app: INestApplication,
+  startDate: string,
+  endDate: string,
+): Promise<string> {
+  const res = await request(app.getHttpServer() as Server)
     .post('/requests')
     .send({ ...BASE_SUBMIT, startDate, endDate })
     .expect(201);
@@ -65,14 +70,18 @@ describe('RG-11: employee notified on all terminal transitions', () => {
     const spy = jest.spyOn(notifications, 'notifyEmployee');
 
     const externalId = await submitRequest(app, '2024-03-01', '2024-03-01');
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/approve`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
 
     const approvedCalls = spy.mock.calls.filter((c) => c[1] === 'APPROVED');
     expect(approvedCalls).toHaveLength(1);
-    expect(approvedCalls[0]).toEqual([DEFAULT_KEY.employeeId, 'APPROVED', externalId]);
+    expect(approvedCalls[0]).toEqual([
+      DEFAULT_KEY.employeeId,
+      'APPROVED',
+      externalId,
+    ]);
 
     spy.mockRestore();
   });
@@ -81,7 +90,7 @@ describe('RG-11: employee notified on all terminal transitions', () => {
     const spy = jest.spyOn(notifications, 'notifyEmployee');
 
     const externalId = await submitRequest(app, '2024-03-01', '2024-03-01');
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/reject`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
@@ -97,7 +106,7 @@ describe('RG-11: employee notified on all terminal transitions', () => {
     const spy = jest.spyOn(notifications, 'notifyEmployee');
 
     const externalId = await submitRequest(app, '2024-03-01', '2024-03-01');
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/withdraw`)
       .send({ actorId: 'emp-1' })
       .expect(200);

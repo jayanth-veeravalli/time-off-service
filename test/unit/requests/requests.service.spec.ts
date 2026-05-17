@@ -8,6 +8,11 @@ import {
 } from '../../../src/common/exceptions';
 import { LeaveType, RequestStatus } from '../../../src/common/types';
 import { RequestsService } from '../../../src/requests/requests.service';
+import type { RequestsRepository } from '../../../src/requests/requests.repository';
+import type { LockService } from '../../../src/requests/lock.service';
+import type { HcmAdapterFactory } from '../../../src/hcm/hcm-adapter.factory';
+import type { NotificationsService } from '../../../src/notifications/notifications.service';
+import type { CommentsService } from '../../../src/comments/comments.service';
 import { FixedClockService } from '../../helpers/fixed-clock.service';
 import { DeterministicUuidService } from '../../helpers/deterministic-uuid.service';
 import {
@@ -28,22 +33,33 @@ function buildService(
   repoOverrides: Partial<Record<string, jest.Mock>> = {},
   balance = 100,
 ) {
-  const repo = makeRepo({ findTransitionsByRequestId: jest.fn().mockResolvedValue([]), ...repoOverrides });
+  const repo = makeRepo({
+    findTransitionsByRequestId: jest.fn().mockResolvedValue([]),
+    ...repoOverrides,
+  });
   const adapter = makeAdapter(balance);
   const factory = makeHcmFactory(adapter);
   const notifications = makeNotifications();
   const commentsService = makeCommentsService();
   const lock = makeLock();
   const service = new RequestsService(
-    repo as any,
-    lock as any,
-    factory as any,
-    notifications as any,
-    commentsService as any,
+    repo as unknown as RequestsRepository,
+    lock as unknown as LockService,
+    factory as unknown as HcmAdapterFactory,
+    notifications as unknown as NotificationsService,
+    commentsService as unknown as CommentsService,
     new FixedClockService(),
     new DeterministicUuidService(),
   );
-  return { service, repo, adapter, factory, notifications, commentsService, lock };
+  return {
+    service,
+    repo,
+    adapter,
+    factory,
+    notifications,
+    commentsService,
+    lock,
+  };
 }
 
 function makeRequest(status: RequestStatus, overrides: object = {}) {
@@ -65,11 +81,17 @@ function makeRequest(status: RequestStatus, overrides: object = {}) {
 function buildServiceWithRequest(status: RequestStatus) {
   const stored = makeRequest(status);
   const { service, adapter, notifications } = buildService({
-    findByExternalId: jest.fn().mockImplementation(() => Promise.resolve({ ...stored })),
-    transitionStatus: jest.fn().mockImplementation((_id: string, _from: unknown, toStatus: RequestStatus) => {
-      stored.status = toStatus;
-      return Promise.resolve(true);
-    }),
+    findByExternalId: jest
+      .fn()
+      .mockImplementation(() => Promise.resolve({ ...stored })),
+    transitionStatus: jest
+      .fn()
+      .mockImplementation(
+        (_id: string, _from: unknown, toStatus: RequestStatus) => {
+          stored.status = toStatus;
+          return Promise.resolve(true);
+        },
+      ),
   });
   return { service, adapter, notifications, stored };
 }
@@ -90,57 +112,89 @@ const BASE_DTO = {
 
 describe('RequestsService — submit: balance guard', () => {
   it('passes when requestedHours + pendingHours equals balance exactly', async () => {
-    const { service } = buildService({ sumPendingHours: jest.fn().mockResolvedValue(0) }, 40);
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 40 })).resolves.toBeDefined();
+    const { service } = buildService(
+      { sumPendingHours: jest.fn().mockResolvedValue(0) },
+      40,
+    );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 40 }),
+    ).resolves.toBeDefined();
   });
 
   it('throws InsufficientBalance when requestedHours + pendingHours exceeds balance by 1', async () => {
-    const { service } = buildService({ sumPendingHours: jest.fn().mockResolvedValue(0) }, 40);
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 41 })).rejects.toBeInstanceOf(
-      InsufficientBalanceException,
+    const { service } = buildService(
+      { sumPendingHours: jest.fn().mockResolvedValue(0) },
+      40,
     );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 41 }),
+    ).rejects.toBeInstanceOf(InsufficientBalanceException);
   });
 
   it('throws InsufficientBalance when existing pending hours fill the balance', async () => {
-    const { service } = buildService({ sumPendingHours: jest.fn().mockResolvedValue(40) }, 40);
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 8 })).rejects.toBeInstanceOf(
-      InsufficientBalanceException,
+    const { service } = buildService(
+      { sumPendingHours: jest.fn().mockResolvedValue(40) },
+      40,
     );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 8 }),
+    ).rejects.toBeInstanceOf(InsufficientBalanceException);
   });
 
   it('passes when balance and requested hours are both 0 (DTO rejects 0, guard stays consistent)', async () => {
-    const { service } = buildService({ sumPendingHours: jest.fn().mockResolvedValue(0) }, 0);
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 0 })).resolves.toBeDefined();
+    const { service } = buildService(
+      { sumPendingHours: jest.fn().mockResolvedValue(0) },
+      0,
+    );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 0 }),
+    ).resolves.toBeDefined();
   });
 
   it('throws OverlapConflict before checking balance when dates overlap', async () => {
-    const { service } = buildService({ findOverlapping: jest.fn().mockResolvedValue([{ id: 1 }]) });
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 8 })).rejects.toBeInstanceOf(
-      OverlapConflictException,
-    );
+    const { service } = buildService({
+      findOverlapping: jest.fn().mockResolvedValue([{ id: 1 }]),
+    });
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 8 }),
+    ).rejects.toBeInstanceOf(OverlapConflictException);
   });
 
   it('propagates HcmUnavailableException from getBalance', async () => {
     const repo = makeRepo();
-    const adapter = { ...makeAdapter(100), getBalance: jest.fn().mockRejectedValue(new HcmUnavailableException()) };
+    const adapter = {
+      ...makeAdapter(100),
+      getBalance: jest.fn().mockRejectedValue(new HcmUnavailableException()),
+    };
     const service = new RequestsService(
-      repo as any, makeLock() as any, makeHcmFactory(adapter) as any,
-      makeNotifications() as any, new FixedClockService(), new DeterministicUuidService(),
+      repo as unknown as RequestsRepository,
+      makeLock() as unknown as LockService,
+      makeHcmFactory(adapter) as unknown as HcmAdapterFactory,
+      makeNotifications() as unknown as NotificationsService,
+      new FixedClockService(),
+      new DeterministicUuidService(),
     );
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 8 })).rejects.toBeInstanceOf(
-      HcmUnavailableException,
-    );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 8 }),
+    ).rejects.toBeInstanceOf(HcmUnavailableException);
   });
 
   it('propagates HcmConfigNotFoundException from factory', async () => {
     const service = new RequestsService(
-      makeRepo() as any, makeLock() as any,
-      { getAdapter: jest.fn().mockRejectedValue(new HcmConfigNotFoundException('er-1')) } as any,
-      makeNotifications() as any, new FixedClockService(), new DeterministicUuidService(),
+      makeRepo() as unknown as RequestsRepository,
+      makeLock() as unknown as LockService,
+      {
+        getAdapter: jest
+          .fn()
+          .mockRejectedValue(new HcmConfigNotFoundException('er-1')),
+      } as unknown as HcmAdapterFactory,
+      makeNotifications() as unknown as NotificationsService,
+      new FixedClockService(),
+      new DeterministicUuidService(),
     );
-    await expect(service.submit({ ...BASE_DTO, requestedHours: 8 })).rejects.toBeInstanceOf(
-      HcmConfigNotFoundException,
-    );
+    await expect(
+      service.submit({ ...BASE_DTO, requestedHours: 8 }),
+    ).rejects.toBeInstanceOf(HcmConfigNotFoundException);
   });
 });
 
@@ -149,10 +203,13 @@ describe('RequestsService — submit: balance guard', () => {
 describe('RequestsService — approve: balance guard', () => {
   it('throws InsufficientBalance when other pending hours consume the full balance', async () => {
     const request = makeRequest(RequestStatus.PENDING);
-    const { service, adapter } = buildService({
-      findByExternalId: jest.fn().mockResolvedValue(request),
-      sumPendingHours: jest.fn().mockResolvedValue(40),
-    }, 40);
+    const { service, adapter } = buildService(
+      {
+        findByExternalId: jest.fn().mockResolvedValue(request),
+        sumPendingHours: jest.fn().mockResolvedValue(40),
+      },
+      40,
+    );
     await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(
       InsufficientBalanceException,
     );
@@ -169,29 +226,41 @@ describe('RequestsService — approve: state machine', () => {
   });
 
   it('APPROVED → APPROVED returns idempotently without calling debitBalance', async () => {
-    const { service, adapter } = buildServiceWithRequest(RequestStatus.APPROVED);
+    const { service, adapter } = buildServiceWithRequest(
+      RequestStatus.APPROVED,
+    );
     await expect(service.approve('req-ext-1', 'mgr-1')).resolves.toBeDefined();
     expect(adapter.debitBalance).not.toHaveBeenCalled();
   });
 
   it('REJECTED → APPROVED throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.REJECTED);
-    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 
   it('CANCELLED → APPROVED throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.CANCELLED);
-    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 
   it('WITHDRAWN → APPROVED throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.WITHDRAWN);
-    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.approve('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 
   it('throws RequestNotFoundException when request does not exist', async () => {
-    const { service } = buildService({ findByExternalId: jest.fn().mockResolvedValue(null) });
-    await expect(service.approve('missing', 'mgr-1')).rejects.toBeInstanceOf(RequestNotFoundException);
+    const { service } = buildService({
+      findByExternalId: jest.fn().mockResolvedValue(null),
+    });
+    await expect(service.approve('missing', 'mgr-1')).rejects.toBeInstanceOf(
+      RequestNotFoundException,
+    );
   });
 });
 
@@ -210,7 +279,9 @@ describe('RequestsService — reject: state machine', () => {
 
   it('APPROVED → REJECTED throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.APPROVED);
-    await expect(service.reject('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.reject('req-ext-1', 'mgr-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 });
 
@@ -224,7 +295,9 @@ describe('RequestsService — withdraw: state machine', () => {
   });
 
   it('APPROVED → WITHDRAWN calls reverseDebit', async () => {
-    const { service, adapter } = buildServiceWithRequest(RequestStatus.APPROVED);
+    const { service, adapter } = buildServiceWithRequest(
+      RequestStatus.APPROVED,
+    );
     await expect(service.withdraw('req-ext-1', 'emp-1')).resolves.toBeDefined();
     expect(adapter.reverseDebit).toHaveBeenCalledTimes(1);
   });
@@ -236,12 +309,16 @@ describe('RequestsService — withdraw: state machine', () => {
 
   it('REJECTED → WITHDRAWN throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.REJECTED);
-    await expect(service.withdraw('req-ext-1', 'emp-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.withdraw('req-ext-1', 'emp-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 
   it('CANCELLED → WITHDRAWN throws InvalidTransitionException', async () => {
     const { service } = buildServiceWithRequest(RequestStatus.CANCELLED);
-    await expect(service.withdraw('req-ext-1', 'emp-1')).rejects.toBeInstanceOf(InvalidTransitionException);
+    await expect(service.withdraw('req-ext-1', 'emp-1')).rejects.toBeInstanceOf(
+      InvalidTransitionException,
+    );
   });
 });
 
@@ -249,20 +326,38 @@ describe('RequestsService — withdraw: state machine', () => {
 
 describe('RequestsService — notifications', () => {
   it('notifies employee on APPROVED transition', async () => {
-    const { service, notifications } = buildServiceWithRequest(RequestStatus.PENDING);
+    const { service, notifications } = buildServiceWithRequest(
+      RequestStatus.PENDING,
+    );
     await service.approve('req-ext-1', 'mgr-1');
-    expect(notifications.notifyEmployee).toHaveBeenCalledWith('emp-1', RequestStatus.APPROVED, 'req-ext-1');
+    expect(notifications.notifyEmployee).toHaveBeenCalledWith(
+      'emp-1',
+      RequestStatus.APPROVED,
+      'req-ext-1',
+    );
   });
 
   it('notifies employee on REJECTED transition', async () => {
-    const { service, notifications } = buildServiceWithRequest(RequestStatus.PENDING);
+    const { service, notifications } = buildServiceWithRequest(
+      RequestStatus.PENDING,
+    );
     await service.reject('req-ext-1', 'mgr-1');
-    expect(notifications.notifyEmployee).toHaveBeenCalledWith('emp-1', RequestStatus.REJECTED, 'req-ext-1');
+    expect(notifications.notifyEmployee).toHaveBeenCalledWith(
+      'emp-1',
+      RequestStatus.REJECTED,
+      'req-ext-1',
+    );
   });
 
   it('notifies employee on WITHDRAWN from PENDING', async () => {
-    const { service, notifications } = buildServiceWithRequest(RequestStatus.PENDING);
+    const { service, notifications } = buildServiceWithRequest(
+      RequestStatus.PENDING,
+    );
     await service.withdraw('req-ext-1', 'emp-1');
-    expect(notifications.notifyEmployee).toHaveBeenCalledWith('emp-1', RequestStatus.WITHDRAWN, 'req-ext-1');
+    expect(notifications.notifyEmployee).toHaveBeenCalledWith(
+      'emp-1',
+      RequestStatus.WITHDRAWN,
+      'req-ext-1',
+    );
   });
 });

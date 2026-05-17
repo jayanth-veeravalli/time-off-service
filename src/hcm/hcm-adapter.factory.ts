@@ -27,7 +27,7 @@ export class HcmAdapterFactory {
       case HcmType.SAP:
         return new SapAdapter(config.baseUrl);
       default:
-        throw new Error(`Unsupported HCM type: ${config.hcmType}`);
+        throw new Error(`Unsupported HCM type: ${String(config.hcmType)}`);
     }
   }
 }

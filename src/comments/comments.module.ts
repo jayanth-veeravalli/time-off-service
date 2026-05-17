@@ -6,7 +6,9 @@ import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([RequestCommentEntity, TimeOffRequestEntity])],
+  imports: [
+    TypeOrmModule.forFeature([RequestCommentEntity, TimeOffRequestEntity]),
+  ],
   controllers: [CommentsController],
   providers: [CommentsService],
   exports: [CommentsService],

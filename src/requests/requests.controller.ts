@@ -23,13 +23,19 @@ export class RequestsController {
   constructor(private readonly service: RequestsService) {}
 
   @Get('requests')
-  listRequests(@Query(new ValidationPipe({ transform: true, whitelist: true })) dto: ListRequestsDto) {
+  listRequests(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: ListRequestsDto,
+  ) {
     return this.service.listRequests(dto);
   }
 
   @Post('requests')
   @HttpCode(HttpStatus.CREATED)
-  submit(@Body(new ValidationPipe({ transform: true, whitelist: true })) dto: SubmitRequestDto) {
+  submit(
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: SubmitRequestDto,
+  ) {
     return this.service.submit(dto);
   }
 
@@ -42,7 +48,8 @@ export class RequestsController {
   @HttpCode(HttpStatus.OK)
   reassignManager(
     @Param('externalId') externalId: string,
-    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: ReassignManagerDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: ReassignManagerDto,
   ) {
     return this.service.reassignManager(externalId, dto.managerId);
   }
@@ -51,7 +58,8 @@ export class RequestsController {
   @HttpCode(HttpStatus.OK)
   approve(
     @Param('externalId') externalId: string,
-    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: ApproveRequestDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: ApproveRequestDto,
   ) {
     return this.service.approve(externalId, dto.actorId);
   }
@@ -60,7 +68,8 @@ export class RequestsController {
   @HttpCode(HttpStatus.OK)
   reject(
     @Param('externalId') externalId: string,
-    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: RejectRequestDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: RejectRequestDto,
   ) {
     return this.service.reject(externalId, dto.actorId, dto.comment);
   }
@@ -69,7 +78,8 @@ export class RequestsController {
   @HttpCode(HttpStatus.OK)
   withdraw(
     @Param('externalId') externalId: string,
-    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: WithdrawRequestDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    dto: WithdrawRequestDto,
   ) {
     return this.service.withdraw(externalId, dto.actorId);
   }
