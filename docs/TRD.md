@@ -194,7 +194,7 @@ All HCM calls use a 5-second timeout with no retries (fail fast). Infrastructure
 ```mermaid
 flowchart TD
     Client([Internal Service / Gateway])
-    GW[Internal Gateway\nclient-id + api-key]
+    GW[Internal Gateway<br/>client-id + api-key]
     RC[RequestsController]
     RS[RequestsService]
     LS[LockService]
@@ -203,8 +203,8 @@ flowchart TD
     BS[BalanceService]
     CC[CommentsController]
     CS[CommentsService]
-    SCH[SchedulerService\n@Cron 8am daily]
-    NS[NotificationService\nstub / SNS-ready]
+    SCH[SchedulerService<br/>@Cron 8am daily]
+    NS[NotificationService<br/>stub / SNS-ready]
     FAC[HcmAdapterFactory]
     WD[WorkdayAdapter]
     SAP[SapAdapter]
@@ -236,7 +236,7 @@ flowchart TD
 ```mermaid
 erDiagram
     time_off_requests {
-        bigint id PK
+        int id PK
         string externalId UK
         string employeeId
         string employerId
@@ -254,8 +254,8 @@ erDiagram
     }
 
     request_state_transitions {
-        bigint id PK
-        bigint requestId
+        int id PK
+        int requestId FK
         string fromState
         string toState
         string actorId
@@ -264,8 +264,8 @@ erDiagram
     }
 
     request_comments {
-        bigint id PK
-        bigint requestId
+        int id PK
+        int requestId FK
         string authorId
         string authorType
         string body
@@ -273,7 +273,7 @@ erDiagram
     }
 
     employer_hcm_config {
-        bigint id PK
+        int id PK
         string employerId UK
         string hcmType
         string baseUrl
@@ -304,6 +304,8 @@ erDiagram
 | Fetch all requests for an employer | `(employerId)` on `time_off_requests` |
 | Fetch all requests for a location | `(locationId)` on `time_off_requests` |
 | Check date overlap on submit | Composite `(employeeId, employerId, locationId, leaveType, year, status)` narrows to the employee's active requests; `(startDate)` and `(endDate)` individual indexes support the range conditions `startDate <= :endDate` and `endDate >= :startDate` |
+| Date range condition on overlap check (`startDate <= :endDate`) | `(startDate)` on `time_off_requests` |
+| Date range condition on overlap check (`endDate >= :startDate`) | `(endDate)` on `time_off_requests` |
 | Sum PENDING hours on submit/approve | Same composite index |
 | Scheduler: find PENDING requests past `startDate` | Composite `(status, startDate)` on `time_off_requests` |
 | Scheduler: find PENDING requests for reminders | Same composite index |
@@ -475,7 +477,12 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 
 **Purpose:** Approve a PENDING request. Re-validates balance against HCM and debits on success.
 
-**Request body:** *(empty — actor context passed via trusted headers from gateway)*
+**Request body:**
+```json
+{
+  "actorId": "string, required"
+}
+```
 
 **Response:** `200 OK` — full request object (same shape as GET)
 
@@ -582,7 +589,7 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 **Response:** `201 Created`
 ```json
 {
-  "id": "bigint",
+  "id": "int",
   "authorId": "string",
   "authorType": "string",
   "body": "string",
@@ -601,7 +608,7 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 {
   "comments": [
     {
-      "id": "bigint",
+      "id": "int",
       "authorId": "string",
       "authorType": "string",
       "body": "string",
@@ -875,7 +882,11 @@ sequenceDiagram
     RequestsService->>DB: fetch request WHERE externalId
     RequestsService->>LockService: acquire(employeeId)
     RequestsService->>DB: re-fetch WHERE externalId AND status=APPROVED
-    alt status changed under lock
+    alt status=WITHDRAWN (already withdrawn under lock)
+        RequestsService->>LockService: release(employeeId)
+        RequestsService-->>API: 200 request (idempotent)
+        API-->>Employee: 200
+    else status not APPROVED
         RequestsService->>LockService: release(employeeId)
         RequestsService-->>API: 409 INVALID_TRANSITION
         API-->>Employee: 409
@@ -920,8 +931,8 @@ Runs at 11:59pm. Cancels all PENDING requests whose start date has passed with n
 flowchart TD
     A[11:59pm Cancellation Job Fires] --> B[Fetch PENDING requests WHERE startDate < today]
     B --> C{Any found?}
-    C -- Yes --> D[transitionStatus: PENDING→CANCELLED\nactorId=SCHEDULER, actorType=SYSTEM]
-    D --> E[request_state_transitions row inserted\nactorId=SCHEDULER, actorType=SYSTEM]
+    C -- Yes --> D[transitionStatus: PENDING→CANCELLED<br/>actorId=SCHEDULER, actorType=SYSTEM]
+    D --> E[request_state_transitions row inserted<br/>actorId=SCHEDULER, actorType=SYSTEM]
     E --> F[NotificationService.notifyEmployee per cancelled request]
     F --> G[Done]
     C -- No --> G
