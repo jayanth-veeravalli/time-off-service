@@ -45,7 +45,6 @@ Integration tests cover:
 - HCM debit failure after balance check passes (C-3)
 - Scheduler auto-cancel racing with an approve (C-4)
 - All HCM error modes: 503, timeout, domain error (C-6)
-- Batch approve and batch reject partial failure scenarios
 - Comment creation and retrieval
 - Idempotent re-approve and re-reject
 
@@ -237,16 +236,6 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 
 ---
 
-### RG-10: Batch approve partial failure does not abort the batch
-
-**Protects:** FR-8
-
-**Scenario:** A batch of three approve requests is submitted. The HCM mock is seeded so that the second request has insufficient balance. The test asserts that the first and third succeed (200 in the succeeded array), the second fails (in the failed array with code INSUFFICIENT_BALANCE), and the overall response is 200 (not 422 or 503).
-
-**Layer:** Integration
-
----
-
 ### RG-11: Employee notified on every terminal state transition
 
 **Protects:** FR-15
@@ -257,9 +246,39 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 
 ---
 
+### RG-12: UNAUTHORIZED_ACTOR on approve and reject by non-manager
+
+**Protects:** managerId enforcement (AC-21)
+
+**Scenario:** A request is submitted with `managerId: 'mgr-1'`. A second actor (`actorId: 'emp-2'`) attempts to approve it. The test asserts the response is 403 with `code: UNAUTHORIZED_ACTOR` and the request remains PENDING with no HCM call made. A separate test repeats the same check for reject.
+
+**Layer:** Integration
+
+---
+
+### RG-13: GET /requests filters by status and employeeId
+
+**Protects:** GET /requests (AC-22)
+
+**Scenario:** Three requests are submitted with different `employeeId` values and transitioned to different statuses (PENDING, APPROVED, REJECTED). A `GET /requests?status=PENDING` call is made and asserts only the PENDING request appears in `items`. A `GET /requests?employeeId=emp-1` call asserts only that employee's requests appear. Pagination fields (`total`, `limit`, `offset`) are present in every response.
+
+**Layer:** Integration
+
+---
+
+### RG-14: PATCH /manager rejected on non-PENDING requests
+
+**Protects:** PATCH /manager (AC-23)
+
+**Scenario:** A request is submitted and approved. A `PATCH /requests/:externalId/manager` with `managerId: 'mgr-2'` is issued. The test asserts a 409 INVALID_TRANSITION response and that the managerId in the DB is unchanged. A separate test verifies the same endpoint succeeds (200) on a PENDING request and that the managerId is updated in the DB.
+
+**Layer:** Integration
+
+---
+
 ## 5. Test Data Strategy
 
-**Factories.** All test data is created via factory functions in `test/helpers/factories.ts`. Each factory accepts a partial override object and merges it with sensible defaults. Example: `makeRequest({ leaveType: 'SICK', requestedHours: 16 })`. Factories never share state — each call produces an independent object.
+**Factories.** All test data is created via factory functions in `test/helpers/factories.ts`. Each factory accepts a partial override object and merges it with sensible defaults. Example: `makeRequest({ leaveType: 'SICK', requestedHours: 16 })`. Factories never share state — each call produces an independent object. All submit request fixtures must include `managerId` — it is `NOT NULL` with no default. Tests that verify manager-specific behavior use `managerId: 'mgr-1'` by convention; tests that want to exercise 403 paths submit with one managerId and call approve/reject with a different `actorId`.
 
 **Realistic vs minimal.** Tests use minimal data — only the fields relevant to the scenario under test. Realistic data (actual employee names, realistic date ranges) is not used because it adds noise without improving confidence. Exception: date-sensitive tests use dates relative to a frozen clock so the scenario is legible.
 

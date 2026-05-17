@@ -89,19 +89,17 @@ The brief explicitly states that HCM may not always return errors for insufficie
 
 ## 4. Functional Requirements
 
-- **FR-1:** An employee can submit a time-off request specifying `employeeId`, `employerId`, `locationId`, `leaveType`, `year`, `startDate`, `endDate`, and `requestedHours`
+- **FR-1:** An employee can submit a time-off request specifying `employeeId`, `employerId`, `locationId`, `leaveType`, `year`, `startDate`, `endDate`, `requestedHours`, and `managerId` (the ID of the employee's direct manager — required, used for approval enforcement and notification routing)
 - **FR-2:** A submitted request is rejected if it overlaps in date range with an existing PENDING or APPROVED request for the same employee, leave type, and year
 - **FR-3:** A submitted request is rejected if the requested hours exceed the available balance (`HCM balance − sum of existing PENDING hours`) for the same balance dimensions
 - **FR-4:** A manager can approve a single PENDING request; approval re-validates the balance against HCM and debits HCM on success
 - **FR-5:** A manager can reject a single PENDING request with an optional comment
 - **FR-6:** An employee can withdraw a PENDING request
 - **FR-7:** An employee can withdraw an APPROVED request; withdrawal posts a reversal to HCM
-- **FR-8:** A manager can batch-approve multiple requests; each is processed independently and the response includes per-request success/failure
-- **FR-9:** A manager can batch-reject multiple requests; each is processed independently and the response includes per-request success/failure
 - **FR-10:** An employee or manager can add a comment to any request
 - **FR-11:** Comments on a request can be retrieved
 - **FR-12:** The current balance for an employee can be retrieved; the response is a real-time pass-through from HCM
-- **FR-13:** Two daily scheduler jobs run independently: (1) an 8am reminder job sends a daily reminder to managers for all PENDING requests where `startDate >= today`; (2) an 11:59pm cancellation job cancels all PENDING requests where `today > startDate` (reason: `no_action_taken`) and notifies each affected employee. The separation gives managers the full day to act after receiving the morning reminder before the end-of-day cancellation fires.
+- **FR-13:** Two daily scheduler jobs run independently: (1) an 8am reminder job fetches all PENDING requests where `startDate >= today`, groups them by `managerId`, and calls `notifyPendingRequests(managerId, requests)` once per manager so each manager is alerted only about their own team's pending requests; (2) an 11:59pm cancellation job cancels all PENDING requests where `today > startDate` and notifies each affected employee. The separation gives managers the full day to act after receiving the morning reminder before the end-of-day cancellation fires.
 - **FR-14:** All state transitions are recorded in an audit log (`request_state_transitions`)
 - **FR-15:** The employee is notified via `NotificationService` on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`
 
@@ -125,9 +123,9 @@ The Time-Off Microservice is a NestJS/TypeScript service that manages the full l
 
 The service is multi-employer by design. Each employer has a distinct HCM system (Workday, SAP, or otherwise), and the `HcmAdapterFactory` resolves the correct adapter at runtime by looking up the employer's configuration from `employer_hcm_config`. All HCM adapter implementations share a common interface (`getBalance`, `debitBalance`, `reverseDebit`), so the rest of the service is HCM-agnostic. Authentication with HCM uses ReadyOn's own service-level credentials — no per-user credentials are stored.
 
-When an employee submits a request, the service acquires a per-employee in-process lock, reads the current balance live from HCM, sums the employee's existing PENDING hours from the local DB for the same balance dimensions, and checks that the new request fits within the remaining balance. If it does, the request is inserted as PENDING and the lock is released. Note: SQLite does not support row-level locking — the in-process lock is the sole concurrency guard in v1; this is a known constraint if the service is ever scaled beyond a single instance. In production, this service should be backed by an RDBMS that supports row-level locking (e.g., PostgreSQL), which would replace the in-process lock with a database-level `SELECT ... FOR UPDATE` per employee. When a manager approves, the lock is re-acquired, the balance is re-read from HCM (defending against any changes since submit time), the debit is posted to HCM, and only on success is the DB record updated to APPROVED. If the HCM debit fails for any reason — infrastructure error or domain error — the DB remains PENDING, the lock is released, and a structured error is returned to the caller. Reject and withdraw-PENDING are local-only state transitions with no HCM involvement. Withdraw-APPROVED posts a reversal to HCM before transitioning state. Batch approve and batch reject process each request independently and return a per-request result envelope — a single failure does not abort the batch.
+When an employee submits a request, the service acquires a per-employee in-process lock, reads the current balance live from HCM, sums the employee's existing PENDING hours from the local DB for the same balance dimensions, and checks that the new request fits within the remaining balance. If it does, the request is inserted as PENDING and the lock is released. Note: SQLite does not support row-level locking — the in-process lock is the sole concurrency guard in v1; this is a known constraint if the service is ever scaled beyond a single instance. In production, this service should be backed by an RDBMS that supports row-level locking (e.g., PostgreSQL), which would replace the in-process lock with a database-level `SELECT ... FOR UPDATE` per employee. When a manager approves, the lock is re-acquired, the balance is re-read from HCM (defending against any changes since submit time), the debit is posted to HCM, and only on success is the DB record updated to APPROVED. If the HCM debit fails for any reason — infrastructure error or domain error — the DB remains PENDING, the lock is released, and a structured error is returned to the caller. Reject and withdraw-PENDING are local-only state transitions with no HCM involvement. Withdraw-APPROVED posts a reversal to HCM before transitioning state.
 
-Two daily scheduler jobs run independently via `@nestjs/schedule`. The 8am reminder job notifies managers of all PENDING requests where `startDate >= today`, giving them the full day to act. The 11:59pm cancellation job scans for PENDING requests where `today > startDate`, marks them `CANCELLED` with reason `no_action_taken`, and notifies each affected employee. The time separation is intentional — managers receive the morning reminder before any cancellations fire. The `NotificationService` also fires an employee notification on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`. The `NotificationService` interface is designed for future SNS integration — v1 logs the event. Comments are append-only records attached to a request, writable by both employees and managers, always optional, and returned as part of the request detail response.
+Two daily scheduler jobs run independently via `@nestjs/schedule`. The 8am reminder job notifies managers of all PENDING requests where `startDate >= today`, giving them the full day to act. The 11:59pm cancellation job scans for PENDING requests where `today > startDate`, marks them `CANCELLED` (recording `actorId='SCHEDULER'`, `actorType=SYSTEM` in the transition row), and notifies each affected employee. The time separation is intentional — managers receive the morning reminder before any cancellations fire. The `NotificationService` also fires an employee notification on every terminal or manager-actioned state transition: `APPROVED`, `REJECTED`, `WITHDRAWN`, and `CANCELLED`. The `NotificationService` interface is designed for future SNS integration — v1 logs the event. Comments are append-only records attached to a request, writable by both employees and managers, always optional, and returned as part of the request detail response.
 
 ---
 
@@ -162,15 +160,15 @@ AppModule
 
 | Component | Owns |
 |---|---|
-| `RequestsController` | HTTP boundary for all request lifecycle endpoints |
-| `RequestsService` | State machine, balance guard, lock orchestration, HCM debit sequence |
-| `RequestsRepository` | All DB reads/writes for `time_off_requests`, `request_state_transitions` |
+| `RequestsController` | HTTP boundary for all request lifecycle endpoints including list and re-assignment |
+| `RequestsService` | State machine, balance guard, lock orchestration, HCM debit sequence, managerId enforcement on approve/reject |
+| `RequestsRepository` | All DB reads/writes for `time_off_requests`, `request_state_transitions`; owns the filtered list query |
 | `LockService` | Per-employee in-process mutex |
 | `BalanceController` | HTTP boundary for balance endpoint |
 | `BalanceService` | HCM pass-through for balance reads |
 | `CommentsController` | HTTP boundary for comment endpoints |
 | `CommentsService` | Comment creation and retrieval |
-| `SchedulerService` | Two daily cron jobs: 8am reminder (notify managers of PENDING requests); 11:59pm cancellation (cancel expired PENDING requests, notify employees) |
+| `SchedulerService` | Two daily cron jobs: 8am reminder (group PENDING requests by `managerId`, notify each manager of their team's requests); 11:59pm cancellation (cancel expired PENDING requests, notify employees) |
 | `NotificationService` | Stub interface — logs in v1, SNS-ready |
 | `HcmAdapterFactory` | Resolves correct `IHcmAdapter` per `employerId` at runtime |
 | `WorkdayAdapter`, `SapAdapter` | HCM-specific implementations of `IHcmAdapter` |
@@ -262,6 +260,7 @@ erDiagram
         int requestedHours
         string status
         string submittedById
+        string managerId "NOT NULL — assigned manager at submit time"
         datetime createdAt
         datetime updatedAt
     }
@@ -320,6 +319,8 @@ erDiagram
 | Sum PENDING hours on submit/approve | Same composite index |
 | Scheduler: find PENDING requests past `startDate` | Composite `(status, startDate)` on `time_off_requests` |
 | Scheduler: find PENDING requests for reminders | Same composite index |
+| Manager's pending queue (`GET /requests?managerId=`) | Composite `(managerId, status)` on `time_off_requests` |
+| Employee's request history (`GET /requests?employeeId=`) | Composite `(employeeId, status)` on `time_off_requests` |
 | Fetch state transitions for a request | `(requestId)` on `request_state_transitions` |
 | Fetch comments for a request | `(requestId)` on `request_comments` |
 | Resolve HCM adapter for employer | `UNIQUE (employerId)` on `employer_hcm_config` |
@@ -355,6 +356,53 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 
 ### Requests
 
+#### GET /requests — List and filter requests
+
+**Purpose:** Query requests by manager or employee. Required for manager dashboards and employee history views.
+
+**Query params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `managerId` | string | one of `managerId` or `employeeId` required | Returns requests assigned to this manager |
+| `employeeId` | string | one of `managerId` or `employeeId` required | Returns requests submitted by this employee |
+| `status` | string (enum) | optional | Filter by request status |
+| `limit` | integer | optional, default 20, max 100 | Pagination page size |
+| `offset` | integer | optional, default 0 | Pagination offset |
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "externalId": "string",
+      "employeeId": "string",
+      "employerId": "string",
+      "locationId": "string",
+      "leaveType": "string",
+      "year": "integer",
+      "startDate": "date",
+      "endDate": "date",
+      "requestedHours": "integer",
+      "status": "string",
+      "managerId": "string",
+      "submittedById": "string",
+      "createdAt": "datetime",
+      "updatedAt": "datetime"
+    }
+  ],
+  "total": "integer",
+  "limit": "integer",
+  "offset": "integer"
+}
+```
+
+**Error cases:** `VALIDATION_ERROR` (400) if `managerId` or `employeeId` is blank or both are provided simultaneously.
+
+**Notes:** Response does not include the `transitions` array — use `GET /requests/:externalId` for the full audit trail.
+
+---
+
 #### POST /requests — Submit a request
 
 **Purpose:** Submit a new time-off request.
@@ -370,7 +418,8 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
   "startDate": "date (YYYY-MM-DD), required",
   "endDate": "date (YYYY-MM-DD), required, >= startDate",
   "requestedHours": "integer > 0, required",
-  "submittedById": "string, required"
+  "submittedById": "string, required",
+  "managerId": "string, required — ID of the employee's direct manager"
 }
 ```
 
@@ -444,6 +493,7 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 | Code | HTTP | Condition |
 |---|---|---|
 | `NOT_FOUND` | 404 | Request not found |
+| `UNAUTHORIZED_ACTOR` | 403 | `actorId` does not match the request's `managerId` |
 | `INVALID_TRANSITION` | 409 | Status is not PENDING (and not already APPROVED) |
 | `INSUFFICIENT_BALANCE` | 422 | Balance check failed at approve time |
 | `HCM_UNAVAILABLE` | 503 | HCM call failed |
@@ -467,7 +517,12 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 
 **Response:** `200 OK` — full request object
 
-**Error cases:** `NOT_FOUND` (404), `INVALID_TRANSITION` (409)
+**Error cases:**
+| Code | HTTP | Condition |
+|---|---|---|
+| `NOT_FOUND` | 404 | Request not found |
+| `UNAUTHORIZED_ACTOR` | 403 | `actorId` does not match the request's `managerId` |
+| `INVALID_TRANSITION` | 409 | Status is not PENDING (and not already REJECTED) |
 
 **Idempotency:** Re-rejecting an already-REJECTED request returns `200`.
 
@@ -498,52 +553,26 @@ All endpoints return errors as `{ code: string, message: string }`. HTTP status 
 
 ---
 
-#### POST /requests/batch-approve — Batch approve
+#### PATCH /requests/:externalId/manager — Re-assign manager
 
-**Purpose:** Approve multiple requests. Best-effort — each request is processed independently.
-
-**Request body:**
-```json
-{
-  "externalIds": ["string", "..."]
-}
-```
-
-**Response:** `200 OK`
-```json
-{
-  "succeeded": ["externalId", "..."],
-  "failed": [
-    { "externalId": "string", "code": "string", "message": "string" }
-  ]
-}
-```
-
-**Idempotency:** Already-APPROVED requests count as succeeded.
-
----
-
-#### POST /requests/batch-reject — Batch reject
-
-**Purpose:** Reject multiple requests. Best-effort — each request is processed independently.
+**Purpose:** Update the `managerId` on a PENDING request. Used when an employee's manager changes after submission (re-org, manager departure).
 
 **Request body:**
 ```json
 {
-  "externalIds": ["string", "..."],
-  "comment": "string, optional"
+  "managerId": "string, required, non-empty"
 }
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "succeeded": ["externalId", "..."],
-  "failed": [
-    { "externalId": "string", "code": "string", "message": "string" }
-  ]
-}
-```
+**Response:** `200 OK` — full request object
+
+**Error cases:**
+| Code | HTTP | Condition |
+|---|---|---|
+| `NOT_FOUND` | 404 | Request not found |
+| `INVALID_TRANSITION` | 409 | Request is not in PENDING status |
+
+**Notes:** No HCM call. No state transition record. Only updates the `managerId` field.
 
 ---
 
@@ -704,12 +733,16 @@ sequenceDiagram
     participant DB
     participant HcmAdapter
 
-    Manager->>API: POST /requests/:externalId/approve
-    API->>RequestsService: approve(externalId)
+    Manager->>API: POST /requests/:externalId/approve { actorId }
+    API->>RequestsService: approve(externalId, actorId)
     RequestsService->>DB: fetch request WHERE externalId
     alt not found
         RequestsService-->>API: 404 NOT_FOUND
         API-->>Manager: 404
+    end
+    alt actorId ≠ managerId
+        RequestsService-->>API: 403 UNAUTHORIZED_ACTOR
+        API-->>Manager: 403
     end
     alt status = APPROVED
         RequestsService-->>API: 200 idempotent
@@ -766,12 +799,16 @@ sequenceDiagram
     participant RequestsService
     participant DB
 
-    Manager->>API: POST /requests/:externalId/reject
+    Manager->>API: POST /requests/:externalId/reject { actorId, comment? }
     API->>RequestsService: reject(externalId, actorId, comment?)
     RequestsService->>DB: fetch request WHERE externalId
     alt not found
         RequestsService-->>API: 404 NOT_FOUND
         API-->>Manager: 404
+    end
+    alt actorId ≠ managerId
+        RequestsService-->>API: 403 UNAUTHORIZED_ACTOR
+        API-->>Manager: 403
     end
     alt status = REJECTED
         RequestsService-->>API: 200 idempotent
@@ -875,9 +912,9 @@ Runs at 8am. Notifies managers of all PENDING requests whose start date has not 
 flowchart TD
     A[8am Reminder Job Fires] --> B[Fetch PENDING requests WHERE startDate >= today]
     B --> C{Any found?}
-    C -- Yes --> D[Group by managerId]
-    D --> E[NotificationService.notifyPendingRequests per manager]
     C -- No --> F[Done]
+    C -- Yes --> D[Group requests by managerId]
+    D --> E[For each manager: notifyPendingRequests managerId + their requests]
     E --> F
 ```
 
@@ -891,8 +928,8 @@ Runs at 11:59pm. Cancels all PENDING requests whose start date has passed with n
 flowchart TD
     A[11:59pm Cancellation Job Fires] --> B[Fetch PENDING requests WHERE startDate < today]
     B --> C{Any found?}
-    C -- Yes --> D[UPDATE status=CANCELLED, reason=no_action_taken]
-    D --> E[INSERT request_state_transitions\nactorType=SYSTEM]
+    C -- Yes --> D[transitionStatus: PENDING→CANCELLED\nactorId=SCHEDULER, actorType=SYSTEM]
+    D --> E[request_state_transitions row inserted\nactorId=SCHEDULER, actorType=SYSTEM]
     E --> F[NotificationService.notifyEmployee per cancelled request]
     F --> G[Done]
     C -- No --> G
@@ -922,8 +959,7 @@ src/
 │       ├── submit-request.dto.ts
 │       ├── approve-request.dto.ts
 │       ├── reject-request.dto.ts
-│       ├── batch-approve.dto.ts
-│       └── batch-reject.dto.ts
+│       └── withdraw-request.dto.ts
 ├── balance/
 │   ├── balance.module.ts
 │   ├── balance.controller.ts
@@ -1004,14 +1040,15 @@ test/
 | AC-7 | A rejected request transitions to REJECTED with no HCM call | FR-5 |
 | AC-8 | A withdrawn PENDING request transitions to WITHDRAWN with no HCM call | FR-6 |
 | AC-9 | A withdrawn APPROVED request posts a HCM reversal; on success transitions to WITHDRAWN; on failure remains APPROVED with error response | FR-7 |
-| AC-10 | Batch approve returns per-request success/failure; a single failure does not abort the batch | FR-8 |
-| AC-11 | Batch reject returns per-request success/failure; a single failure does not abort the batch | FR-9 |
 | AC-12 | Comments can be added and retrieved by both employees and managers | FR-10, FR-11 |
 | AC-13 | Get balance returns the real-time HCM balance for the given dimensions | FR-12 |
-| AC-14 | PENDING requests where today > startDate are marked CANCELLED with reason no_action_taken on the next scheduler run | FR-13 |
-| AC-15 | Managers receive a daily notification for all PENDING requests where startDate >= today | FR-13 |
+| AC-14 | PENDING requests where today > startDate are marked CANCELLED on the next scheduler run; the transition record has actorId='SCHEDULER' and actorType=SYSTEM | FR-13 |
+| AC-15 | Managers receive a daily notification grouped by managerId for all PENDING requests where startDate >= today | FR-13 |
 | AC-16 | All state transitions are recorded in request_state_transitions | FR-14 |
 | AC-17 | Re-approving an already-APPROVED request returns 200 with no double-debit | NFR: Idempotency |
 | AC-18 | All HCM infrastructure failures return 503 HCM_UNAVAILABLE with no state change | NFR: Reliability |
 | AC-19 | Invalid state transitions return 409 INVALID_TRANSITION | State machine |
 | AC-20 | Employee is notified on APPROVED, REJECTED, WITHDRAWN, and CANCELLED transitions | FR-15 |
+| AC-21 | Approve and reject by an actorId that does not match managerId return 403 UNAUTHORIZED_ACTOR | managerId enforcement |
+| AC-22 | GET /requests with status=PENDING returns only PENDING requests; with employeeId returns only that employee's requests | GET /requests |
+| AC-23 | PATCH /requests/:externalId/manager succeeds on a PENDING request; returns 409 on APPROVED, REJECTED, WITHDRAWN, or CANCELLED | PATCH /manager |

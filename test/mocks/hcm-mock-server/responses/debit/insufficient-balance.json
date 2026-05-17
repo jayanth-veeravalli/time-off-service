@@ -1,0 +1,4 @@
+{
+  "status": 422,
+  "body": { "message": "Insufficient leave balance" }
+}

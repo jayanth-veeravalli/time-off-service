@@ -6,7 +6,7 @@ Companion to [`docs/TRD.md`](./TRD.md). Each decision below corresponds to an en
 
 ## Decision 1: Balance Consistency Strategy
 
-**Context.** The core design challenge of this service is maintaining balance integrity when the source of truth (HCM) is an external system that ReadyOn does not control. Balances can change in HCM at any time due to third-party events (work anniversaries, year-start resets). This decision addresses challenges C-1 (concurrent approvals), C-2 (external balance mutations), C-3 (partial failure on approve), and C-4 (batch sync race).
+**Context.** The core design challenge of this service is maintaining balance integrity when the source of truth (HCM) is an external system that ReadyOn does not control. Balances can change in HCM at any time due to third-party events (work anniversaries, year-start resets). This decision addresses challenges C-1 (concurrent approvals), C-2 (external balance mutations), C-3 (partial failure on approve), and the batch-sync race (a concern specific to cache-based approaches; batch sync was deferred from v1 scope and has no stable challenge ID in the TRD — TRD C-4 refers to the scheduler/approval race).
 
 ---
 
@@ -104,7 +104,7 @@ Companion to [`docs/TRD.md`](./TRD.md). Each decision below corresponds to an en
 | C-1: Concurrent approvals | Per-employee lock | Queue serializes per employee | Per-employee lock + local tx | Approve gate only |
 | C-2: External balance mutations | Re-read at every approve | Re-read at job execution | Stale until next batch sync | Re-read at approve |
 | C-3: Partial failure on approve | Single recovery point | Queue retry + dead-letter | Two recovery points | Single recovery point |
-| C-4: Batch sync race | N/A — no cache | N/A — no cache | Lock required on sync | Acceptable staleness |
+| Batch sync race (cache-only concern) | N/A — no cache | N/A — no cache | Lock required on sync | Acceptable staleness |
 | C-5: Adapter routing | Runtime resolution | Runtime resolution | Runtime resolution | Runtime resolution |
 | C-6: Cancel/approve race | Conditional DB update | Conditional DB update | Conditional DB update | Conditional DB update |
 | Submit UX | Immediate feedback | Async acknowledgment | Immediate feedback | Immediate (may be wrong) |

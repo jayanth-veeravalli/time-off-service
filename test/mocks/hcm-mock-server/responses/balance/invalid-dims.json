@@ -1,0 +1,4 @@
+{
+  "status": 422,
+  "body": { "message": "Invalid leave dimensions" }
+}

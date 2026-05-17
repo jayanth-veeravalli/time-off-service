@@ -1,0 +1,4 @@
+{
+  "status": 422,
+  "body": { "message": "HCM reversal failed: debit record not found" }
+}
