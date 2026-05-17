@@ -13,6 +13,7 @@ import {
   DEFAULT_KEY,
 } from './setup';
 import { typedQuery } from '../helpers/db-query';
+import { makeSubmitBody } from '../helpers/factories';
 
 describe('RG-1: concurrent submits cannot overdraw balance', () => {
   let app: INestApplication;
@@ -88,5 +89,96 @@ describe('RG-1: concurrent submits cannot overdraw balance', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('PENDING');
+  });
+});
+
+describe('RG-1b: concurrent approvals on the same employee cannot both debit', () => {
+  let app: INestApplication;
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    await startMockServer();
+    ({ app, dataSource } = await buildTestModule());
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await stopMockServer();
+  });
+
+  beforeEach(async () => {
+    await resetDb(dataSource);
+    await hcmMock.reset();
+    deterministicUuid.reset();
+  });
+
+  it('two concurrent 25h approvals against a 40h balance — balance invariant holds (no overdraft)', async () => {
+    await seedHcmConfig(dataSource);
+    // Seed 80h so both submits pass the pending-hours check during submit
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const BASE_BODY = makeSubmitBody({ ...DEFAULT_KEY });
+
+    // Submit request A — gets UUID 000...0001
+    const resA = await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({
+        ...BASE_BODY,
+        startDate: '2024-03-01',
+        endDate: '2024-03-05',
+        requestedHours: 25,
+      })
+      .expect(201);
+    const externalIdA = (resA.body as { externalId: string }).externalId;
+
+    // Submit request B (non-overlapping dates) — counter advances naturally, gets UUID 000...0002
+    const resB = await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({
+        ...BASE_BODY,
+        startDate: '2024-04-01',
+        endDate: '2024-04-05',
+        requestedHours: 25,
+      })
+      .expect(201);
+    const externalIdB = (resB.body as { externalId: string }).externalId;
+
+    // Mutate balance to 40h — individually each request (25h) fits, but together (50h) they exceed it
+    await hcmMock.mutate(DEFAULT_KEY, 40);
+
+    // Fire both approve calls concurrently
+    const [approveResA, approveResB] = await Promise.all([
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalIdA}/approve`)
+        .send({ actorId: 'mgr-1' }),
+      request(app.getHttpServer() as Server)
+        .post(`/requests/${externalIdB}/approve`)
+        .send({ actorId: 'mgr-1' }),
+    ]);
+
+    const statuses = [approveResA.status, approveResB.status].sort();
+
+    // The balance invariant: at most one should be approved (both failing is also acceptable
+    // since combined they exceed the 40h balance — the service blocks both to prevent overdraft)
+    expect(statuses.filter((s) => s === 200)).toHaveLength(
+      statuses.includes(200) ? 1 : 0,
+    );
+
+    // No overdraft: debits committed must not exceed balance
+    const debits = await hcmMock.getDebits();
+    const totalDebited = Object.values(debits).reduce((a, b) => a + b, 0);
+    expect(totalDebited).toBeLessThanOrEqual(40);
+
+    // DB state is consistent: any APPROVED row must have a matching debit
+    const rows = await typedQuery<{ status: string; externalId: string }>(
+      dataSource,
+      'SELECT status, externalId FROM time_off_requests WHERE employeeId = ?',
+      [DEFAULT_KEY.employeeId],
+    );
+    expect(rows).toHaveLength(2);
+    const approvedRows = rows.filter((r) => r.status === 'APPROVED');
+    for (const row of approvedRows) {
+      expect(debits[row.externalId]).toBeDefined();
+    }
   });
 });

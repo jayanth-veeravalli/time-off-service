@@ -90,4 +90,17 @@ describe('GET /employees/:employeeId/balance', () => {
 
     expect((res.body as { code: string }).code).toBe('HCM_ERROR');
   });
+
+  it('missing required query param (year) returns 400', async () => {
+    const queryWithoutYear = {
+      employerId: DEFAULT_KEY.employerId,
+      locationId: DEFAULT_KEY.locationId,
+      leaveType: DEFAULT_KEY.leaveType,
+    };
+
+    await request(app.getHttpServer() as Server)
+      .get(`/employees/${DEFAULT_KEY.employeeId}/balance`)
+      .query(queryWithoutYear)
+      .expect(400);
+  });
 });

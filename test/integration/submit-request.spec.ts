@@ -194,4 +194,28 @@ describe('POST /requests (submit)', () => {
     );
     expect(rows).toHaveLength(0);
   });
+
+  it('missing required field (employeeId) returns 400', async () => {
+    const body = { ...SUBMIT_BODY };
+    delete (body as Record<string, unknown>).employeeId;
+
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send(body)
+      .expect(400);
+  });
+
+  it('invalid leaveType value returns 400', async () => {
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({ ...SUBMIT_BODY, leaveType: 'INVALID_TYPE' })
+      .expect(400);
+  });
+
+  it('endDate before startDate returns 400', async () => {
+    await request(app.getHttpServer() as Server)
+      .post('/requests')
+      .send({ ...SUBMIT_BODY, startDate: '2024-03-10', endDate: '2024-03-01' })
+      .expect(400);
+  });
 });

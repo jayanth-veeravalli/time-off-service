@@ -2,6 +2,8 @@ import type { Server } from 'http';
 import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { TestingModule } from '@nestjs/testing';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 import {
   buildTestModule,
   deterministicUuid,
@@ -28,10 +30,11 @@ async function submitRequest(app: INestApplication): Promise<string> {
 describe('POST /requests/:externalId/approve', () => {
   let app: INestApplication;
   let dataSource: DataSource;
+  let module: TestingModule;
 
   beforeAll(async () => {
     await startMockServer();
-    ({ app, dataSource } = await buildTestModule());
+    ({ app, dataSource, module } = await buildTestModule());
   });
 
   afterAll(async () => {
@@ -96,13 +99,23 @@ describe('POST /requests/:externalId/approve', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
+    const notifications = module.get(NotificationsService);
+    const spy = jest.spyOn(notifications, 'notifyEmployee');
+
     const externalId = await submitRequest(app);
+
+    // first approve — notifyEmployee should be called once
     await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/approve`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
 
-    // second approve — idempotent
+    const callsAfterFirst = spy.mock.calls.filter(
+      (c) => c[1] === 'APPROVED',
+    ).length;
+    expect(callsAfterFirst).toBe(1);
+
+    // second approve — idempotent, notifyEmployee should NOT be called again
     const res = await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/approve`)
       .send({ actorId: 'mgr-1' })
@@ -112,6 +125,14 @@ describe('POST /requests/:externalId/approve', () => {
 
     const debits = await hcmMock.getDebits();
     expect(debits[externalId]).toBe(40); // still 40, not 80
+
+    // total notifyEmployee call count should still be 1
+    const totalApprovedCalls = spy.mock.calls.filter(
+      (c) => c[1] === 'APPROVED',
+    ).length;
+    expect(totalApprovedCalls).toBe(1);
+
+    spy.mockRestore();
   });
 
   it('REJECTED request returns 409 INVALID_TRANSITION', async () => {
@@ -188,6 +209,60 @@ describe('POST /requests/:externalId/approve', () => {
       .expect(503);
 
     expect((res.body as { code: string }).code).toBe('HCM_UNAVAILABLE');
+
+    const rows = await typedQuery<{ status: string }>(
+      dataSource,
+      'SELECT status FROM time_off_requests WHERE externalId = ?',
+      [externalId],
+    );
+    expect(rows[0].status).toBe('PENDING');
+  });
+
+  it('HCM debit returns 4xx domain error — 422 HCM_ERROR, DB stays PENDING', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await hcmMock.configure('INVALID_DIMENSIONS');
+
+    const res = await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/approve`)
+      .send({ actorId: 'mgr-1' })
+      .expect(422);
+
+    expect((res.body as { code: string }).code).toBe('HCM_ERROR');
+
+    const rows = await typedQuery<{ status: string }>(
+      dataSource,
+      'SELECT status FROM time_off_requests WHERE externalId = ?',
+      [externalId],
+    );
+    expect(rows[0].status).toBe('PENDING');
+  });
+
+  it('ReadyOn balance guard blocks approve even in SILENT_ACCEPT mode (C-6, RG-6b)', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    // Drain the HCM balance to 0 after submit
+    await hcmMock.mutate(DEFAULT_KEY, 0);
+
+    // HCM would silently accept any debit
+    await hcmMock.configure('SILENT_ACCEPT');
+
+    const res = await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/approve`)
+      .send({ actorId: 'mgr-1' })
+      .expect(422);
+
+    expect((res.body as { code: string }).code).toBe('INSUFFICIENT_BALANCE');
+
+    // debitBalance was never called
+    const debits = await hcmMock.getDebits();
+    expect(Object.keys(debits)).toHaveLength(0);
 
     const rows = await typedQuery<{ status: string }>(
       dataSource,

@@ -112,6 +112,8 @@ Proportion: ~10% of the suite. Slower than integration tests due to full server 
 
 Hitting 90% is not the goal. The goal is covering every path in `RequestsService` that involves an external call or a state transition. A suite that reaches 90% without covering the concurrent-approve scenario (C-1) or the HCM-silent-accept scenario (C-6) has failed regardless of the number.
 
+**Current suite size:** 168 tests across 34 suites (25 unit, 116 integration, 9 e2e). Key additions: RG-1b (concurrent approvals), RG-6b (SILENT_ACCEPT on approve path), G-7 (HCM 4xx on debit), G-4/G-8 (PATCH/reject terminal state guards), G-5 (DTO boundary validation), G-6 (pagination), G-9 (balance param validation), and notification idempotency guards on re-approve/re-reject.
+
 ---
 
 ## 4. Regression Guards
@@ -121,6 +123,16 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 **Protects:** C-1
 
 **Scenario:** Two concurrent approve calls are made for two different PENDING requests belonging to the same employee. Each request alone fits within the available HCM balance, but together they exceed it. The test fires both approve calls simultaneously and asserts that exactly one succeeds (200) and one fails (422 INSUFFICIENT_BALANCE or 409 INVALID_TRANSITION). The HCM mock is seeded with a balance just large enough for one request. After the test, the mock asserts that `debitBalance` was called exactly once.
+
+**Layer:** Integration
+
+---
+
+### RG-1b: Concurrent approvals on the same employee cannot both debit
+
+**Protects:** C-1
+
+**Scenario:** Two PENDING requests for the same employee are each 25h (individually fitting a 40h balance, but together 50h exceeds it). Both approve calls are fired concurrently. The test asserts the balance invariant holds: no overdraft occurs (total debits ≤ 40h), any APPROVED row in the DB has a matching HCM debit, and at most one request is APPROVED. The service's conservative pending-hours check (which counts all other PENDING hours) may block both or allow one through — either outcome is acceptable as long as no overdraft occurs.
 
 **Layer:** Integration
 
@@ -191,6 +203,16 @@ Hitting 90% is not the goal. The goal is covering every path in `RequestsService
 **Protects:** C-6
 
 **Scenario:** The HCM mock is configured in `SILENT_ACCEPT` mode — it accepts any debit without error, regardless of balance. The HCM balance is seeded at 0 hours. An employee attempts to submit a request for 8 hours. The test asserts that the service returns 422 INSUFFICIENT_BALANCE (from ReadyOn's own guard) and that `debitBalance` is never called. ReadyOn's local check is the gate, not HCM's response.
+
+**Layer:** Integration
+
+---
+
+### RG-6b: ReadyOn balance guard blocks approve even in SILENT_ACCEPT mode
+
+**Protects:** C-6
+
+**Scenario:** A PENDING request with 40h is submitted against an 80h balance. Before approval, the HCM balance is mutated to 0h and configured in `SILENT_ACCEPT` mode (it would accept any debit without error). The approve call is made. The test asserts a 422 INSUFFICIENT_BALANCE response, that `debitBalance` was never called (no debits in the HCM mock), and the DB status remains PENDING. This confirms the approve path re-reads the balance and applies the guard independently of the submit-time check.
 
 **Layer:** Integration
 

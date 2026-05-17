@@ -104,4 +104,61 @@ describe('RG-14: PATCH /requests/:externalId/manager — re-assign manager', () 
       .send({ managerId: '' })
       .expect(400);
   });
+
+  it('REJECTED request returns 409 INVALID_TRANSITION', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/reject`)
+      .send({ actorId: 'mgr-1' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer() as Server)
+      .patch(`/requests/${externalId}/manager`)
+      .send({ managerId: 'mgr-2' })
+      .expect(409);
+
+    expect((res.body as { code: string }).code).toBe('INVALID_TRANSITION');
+  });
+
+  it('WITHDRAWN request returns 409 INVALID_TRANSITION', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/withdraw`)
+      .send({ actorId: 'emp-1' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer() as Server)
+      .patch(`/requests/${externalId}/manager`)
+      .send({ managerId: 'mgr-2' })
+      .expect(409);
+
+    expect((res.body as { code: string }).code).toBe('INVALID_TRANSITION');
+  });
+
+  it('CANCELLED request returns 409 INVALID_TRANSITION', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await dataSource.query(
+      `UPDATE time_off_requests SET status = 'CANCELLED' WHERE externalId = ?`,
+      [externalId],
+    );
+
+    const res = await request(app.getHttpServer() as Server)
+      .patch(`/requests/${externalId}/manager`)
+      .send({ managerId: 'mgr-2' })
+      .expect(409);
+
+    expect((res.body as { code: string }).code).toBe('INVALID_TRANSITION');
+  });
 });

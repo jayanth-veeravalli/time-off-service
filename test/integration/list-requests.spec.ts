@@ -154,4 +154,44 @@ describe('RG-13: GET /requests — filter by managerId / employeeId / status', (
     expect(typeof body.limit).toBe('number');
     expect(typeof body.offset).toBe('number');
   });
+
+  it('limit and offset paginate results correctly', async () => {
+    await seedHcmConfig(dataSource);
+
+    // Seed 3 requests for the same manager, different employees
+    await submitAs(app, 'emp-11', 'mgr-5');
+    await submitAs(app, 'emp-12', 'mgr-5');
+    await submitAs(app, 'emp-13', 'mgr-5');
+
+    const resPage1 = await request(app.getHttpServer() as Server)
+      .get('/requests')
+      .query({ managerId: 'mgr-5', limit: 2, offset: 0 })
+      .expect(200);
+
+    const page1 = resPage1.body as {
+      items: Array<{ externalId: string }>;
+      total: number;
+    };
+    expect(page1.items).toHaveLength(2);
+    expect(page1.total).toBe(3);
+
+    const resPage2 = await request(app.getHttpServer() as Server)
+      .get('/requests')
+      .query({ managerId: 'mgr-5', limit: 2, offset: 2 })
+      .expect(200);
+
+    const page2 = resPage2.body as {
+      items: Array<{ externalId: string }>;
+      total: number;
+    };
+    expect(page2.items).toHaveLength(1);
+    expect(page2.total).toBe(3);
+  });
+
+  it('limit exceeding max (100) returns 400', async () => {
+    await request(app.getHttpServer() as Server)
+      .get('/requests')
+      .query({ managerId: 'mgr-1', limit: 101 })
+      .expect(400);
+  });
 });

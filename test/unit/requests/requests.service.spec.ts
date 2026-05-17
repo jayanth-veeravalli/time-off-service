@@ -171,6 +171,7 @@ describe('RequestsService — submit: balance guard', () => {
       makeLock() as unknown as LockService,
       makeHcmFactory(adapter) as unknown as HcmAdapterFactory,
       makeNotifications() as unknown as NotificationsService,
+      makeCommentsService() as unknown as CommentsService,
       new FixedClockService(),
       new DeterministicUuidService(),
     );
@@ -189,6 +190,7 @@ describe('RequestsService — submit: balance guard', () => {
           .mockRejectedValue(new HcmConfigNotFoundException('er-1')),
       } as unknown as HcmAdapterFactory,
       makeNotifications() as unknown as NotificationsService,
+      makeCommentsService() as unknown as CommentsService,
       new FixedClockService(),
       new DeterministicUuidService(),
     );

@@ -118,11 +118,20 @@ describe('POST /requests/:externalId/reject', () => {
     await seedHcmConfig(dataSource);
     await hcmMock.seed(DEFAULT_KEY, 80);
 
+    const notifications = module.get(NotificationsService);
+    const spy = jest.spyOn(notifications, 'notifyEmployee');
+
     const externalId = await submitRequest(app);
+
     await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/reject`)
       .send({ actorId: 'mgr-1' })
       .expect(200);
+
+    const callsAfterFirst = spy.mock.calls.filter(
+      (c) => c[1] === 'REJECTED',
+    ).length;
+    expect(callsAfterFirst).toBe(1);
 
     const res = await request(app.getHttpServer() as Server)
       .post(`/requests/${externalId}/reject`)
@@ -130,6 +139,14 @@ describe('POST /requests/:externalId/reject', () => {
       .expect(200);
 
     expect((res.body as { status: string }).status).toBe('REJECTED');
+
+    // notifyEmployee should not be called again on idempotent re-reject
+    const totalRejectedCalls = spy.mock.calls.filter(
+      (c) => c[1] === 'REJECTED',
+    ).length;
+    expect(totalRejectedCalls).toBe(1);
+
+    spy.mockRestore();
   });
 
   it('APPROVED request returns 409 INVALID_TRANSITION', async () => {
@@ -180,5 +197,43 @@ describe('POST /requests/:externalId/reject', () => {
     );
 
     spy.mockRestore();
+  });
+
+  it('CANCELLED request returns 409 INVALID_TRANSITION', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await dataSource.query(
+      `UPDATE time_off_requests SET status = 'CANCELLED' WHERE externalId = ?`,
+      [externalId],
+    );
+
+    const res = await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/reject`)
+      .send({ actorId: 'mgr-1' })
+      .expect(409);
+
+    expect((res.body as { code: string }).code).toBe('INVALID_TRANSITION');
+  });
+
+  it('WITHDRAWN request returns 409 INVALID_TRANSITION', async () => {
+    await seedHcmConfig(dataSource);
+    await hcmMock.seed(DEFAULT_KEY, 80);
+
+    const externalId = await submitRequest(app);
+
+    await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/withdraw`)
+      .send({ actorId: 'emp-1' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer() as Server)
+      .post(`/requests/${externalId}/reject`)
+      .send({ actorId: 'mgr-1' })
+      .expect(409);
+
+    expect((res.body as { code: string }).code).toBe('INVALID_TRANSITION');
   });
 });
