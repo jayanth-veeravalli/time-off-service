@@ -203,7 +203,7 @@ flowchart TD
     BS[BalanceService]
     CC[CommentsController]
     CS[CommentsService]
-    SCH[SchedulerService<br/>@Cron 8am daily]
+    SCH[SchedulerService<br/>Cron 8am daily]
     NS[NotificationService<br/>stub / SNS-ready]
     FAC[HcmAdapterFactory]
     WD[WorkdayAdapter]
